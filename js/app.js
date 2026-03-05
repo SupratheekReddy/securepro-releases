@@ -50,6 +50,13 @@ function blockContextMenu(e) {
     const isCodeEditor = e.target.classList.contains('code-editor');
     if (!isCodeEditor) e.preventDefault();
 }
+function blockClipboardEvents(e) {
+    const isCodeEditor = e.target.classList && e.target.classList.contains('code-editor');
+    if (!isCodeEditor) {
+        e.preventDefault();
+        showVio('COPY_PASTE_ATTEMPT');
+    }
+}
 
 function captureViolationSnapshot() {
     const v = document.getElementById('exam-video');
@@ -1767,6 +1774,9 @@ async function launchExam(eid, videoDeviceId, audioDeviceId) {
         // Feature 1: Copy-paste blocking
         document.addEventListener('keydown', blockExamShortcuts);
         document.addEventListener('contextmenu', blockContextMenu);
+        document.addEventListener('copy', blockClipboardEvents);
+        document.addEventListener('cut', blockClipboardEvents);
+        document.addEventListener('paste', blockClipboardEvents);
         document.addEventListener('visibilitychange', handleTabSwitch);
         window.addEventListener('blur', handleTabSwitch);
 
@@ -1879,6 +1889,9 @@ async function submitPaper() {
 
     document.removeEventListener('keydown', blockExamShortcuts);
     document.removeEventListener('contextmenu', blockContextMenu);
+    document.removeEventListener('copy', blockClipboardEvents);
+    document.removeEventListener('cut', blockClipboardEvents);
+    document.removeEventListener('paste', blockClipboardEvents);
     document.removeEventListener('visibilitychange', handleTabSwitch);
     window.removeEventListener('blur', handleTabSwitch);
     document.removeEventListener('keydown', trackTypingSpeed);

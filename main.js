@@ -149,10 +149,11 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      devTools: true
+      devTools: false // Disable devtools in prod
     }
   });
 
+  mainWindow.maximize();
   mainWindow.loadFile('index.html');
 
   // ── CLEAN UP BLACKOUT IF THE WINDOW IS CLOSED ANY WAY ───────────────────
@@ -167,10 +168,13 @@ function createWindow() {
 
   // BLOCK KEYBOARD SHORTCUTS
   mainWindow.webContents.on('before-input-event', (event, input) => {
+    const k = input.key.toLowerCase();
     if (
-      (input.control && input.key.toLowerCase() === 'w') ||
-      (input.control && input.key.toLowerCase() === 'q') ||
-      (input.alt && input.key.toLowerCase() === 'f4')
+      (input.control && k === 'w') ||
+      (input.control && k === 'q') ||
+      (input.alt && k === 'f4') ||
+      k === 'f11' || k === 'f12' ||
+      (input.control && input.shift && (k === 'i' || k === 'j' || k === 'c'))
     ) {
       event.preventDefault();
     }
@@ -180,7 +184,9 @@ function createWindow() {
   ipcMain.on('show-blackout', () => {
     createBlackoutWindows();
     if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setFullScreen(true);
       mainWindow.setKiosk(true); // Locks down app, forces fullscreen, hides taskbar
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
     }
     console.log('[BLACKOUT] Screen blackout activated along with Kiosk fullscreen');
   });
@@ -189,6 +195,8 @@ function createWindow() {
     destroyBlackoutWindows();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setKiosk(false); // Remove fullscreen lock when exam ends
+      mainWindow.setFullScreen(false);
+      mainWindow.setAlwaysOnTop(false);
     }
     console.log('[BLACKOUT] Screen blackout deactivated');
   });

@@ -1,0 +1,517 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>SecurePro | AI Exam Proctoring</title>
+    <meta name="description"
+        content="Secure exam proctoring system with AI auto-grading, face verification, and violation tracking.">
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1001.0.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+    <div id="toast-box"></div>
+
+    <!-- AUTH SCREEN -->
+    <div id="auth-screen" class="screen" style="display:flex;">
+        <div class="auth-card">
+            <div class="auth-logo">⬡ SECUREPRO</div>
+            <div class="auth-subtitle">Examination Management System</div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active"
+                    onclick="switchView('login'); this.parentElement.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active')); this.classList.add('active');">Login</button>
+                <button class="auth-tab"
+                    onclick="switchView('register'); this.parentElement.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active')); this.classList.add('active');">Register</button>
+            </div>
+
+            <div id="view-login">
+                <label class="field-label">Student ID</label>
+                <input type="text" id="login-id" placeholder="Enter your student ID">
+                <div id="otp-group" class="hidden">
+                    <label class="field-label">OTP Code</label>
+                    <input type="text" id="login-otp" placeholder="000000"
+                        style="text-align:center; font-family:'JetBrains Mono',monospace; font-size:20px; font-weight:600; letter-spacing:0.3em;">
+                </div>
+                <button id="login-action" onclick="handleStudentLogin()">SEND OTP</button>
+                <div class="admin-link"><span onclick="switchView('admin')">Admin Access →</span></div>
+                <div id="cam-container" class="cam-box hidden"><video id="login-video" autoplay muted
+                        playsinline></video></div>
+            </div>
+
+            <div id="view-admin" class="hidden">
+                <label class="field-label">Username</label>
+                <input type="text" id="admin-user" placeholder="admin">
+                <label class="field-label">Password</label>
+                <input type="password" id="admin-pass" placeholder="••••••••">
+                <button onclick="handleAdminLogin()">ACCESS ADMIN PANEL</button>
+                <button onclick="switchView('login')" class="secondary" style="margin-top:8px;">← Back</button>
+            </div>
+
+            <div id="view-register" class="hidden">
+                <label class="field-label">Full Name</label>
+                <input type="text" id="reg-name" placeholder="John Smith">
+                <label class="field-label">Student ID</label>
+                <input type="text" id="reg-id" placeholder="STU001">
+                <label class="field-label">Email</label>
+                <input type="email" id="reg-email" placeholder="student@university.edu">
+                <label class="field-label">Mobile</label>
+                <input type="tel" id="reg-mobile" placeholder="+1 000 000 0000">
+                <label class="field-label">Photo <span style="color:#475569;">(JPEG/PNG)</span></label>
+                <input type="file" id="reg-photo" accept="image/*" style="padding:8px 14px;">
+                <button onclick="registerUser()" style="margin-top:4px;">CREATE ACCOUNT</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ADMIN SCREEN -->
+    <div id="admin-screen" style="width:100vw; height:100vh; display:none;">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <div class="sidebar-logo-icon"><i class="fas fa-shield-alt"></i></div>
+                    SECUREPRO
+                </div>
+                <div class="sidebar-version">v1.0 · ADMIN CONSOLE</div>
+            </div>
+            <div class="sidebar-nav">
+                <div class="nav-section-label">Management</div>
+                <div class="nav-item active" onclick="nav('students')" id="nav-students"><i class="fas fa-users"></i>
+                    Students</div>
+                <div class="nav-item" onclick="nav('create')" id="nav-create"><i class="fas fa-plus-circle"></i> Create
+                    Exam</div>
+                <div class="nav-item" onclick="nav('assign')" id="nav-assign"><i class="fas fa-link"></i> Assign</div>
+                <div class="nav-item" onclick="nav('groups')" id="nav-groups"><i class="fas fa-layer-group"></i> Groups
+                </div>
+                <div class="nav-item" onclick="nav('manage')" id="nav-manage"><i class="fas fa-clipboard-list"></i>
+                    Manage Exams</div>
+                <div class="nav-section-label">Analytics</div>
+                <div class="nav-item" onclick="nav('results')" id="nav-results"><i class="fas fa-chart-line"></i>
+                    Results</div>
+                <div class="nav-item" onclick="nav('analytics')" id="nav-analytics"><i class="fas fa-chart-bar"></i>
+                    Analytics</div>
+            </div>
+            <div class="sidebar-footer">
+                <div class="nav-item" onclick="location.reload()"
+                    style="color:var(--danger); border-color:transparent;"><i class="fas fa-sign-out-alt"></i> Logout
+                </div>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- Students Panel -->
+            <div id="panel-students" class="panel active">
+                <div class="panel-header">
+                    <div class="panel-header-accent"></div>
+                    <h2>Students</h2>
+                </div>
+                <div class="card">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stud-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Create Exam Panel -->
+            <div id="panel-create" class="panel">
+                <div class="panel-header">
+                    <div class="panel-header-accent"></div>
+                    <h2>Create Exam</h2>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+                    <div class="card">
+                        <label class="field-label">Exam Title</label>
+                        <input type="text" id="exam-title" placeholder="e.g. Data Structures Final">
+                        <label class="field-label">Duration (minutes)</label>
+                        <input type="number" id="exam-duration" value="30" min="1">
+                        <label class="field-label">Proctoring Severity (ms)</label>
+                        <select id="exam-severity">
+                            <option value="8000">Low (8s)</option>
+                            <option value="5000" selected>Medium (5s)</option>
+                            <option value="3000">High (3s)</option>
+                        </select>
+                        <label class="field-label" style="margin-top:12px;">&#128197; Exam Start Date &amp; Time <span
+                                style="color:#64748b; font-weight:400;">(Optional)</span></label>
+                        <input type="datetime-local" id="exam-start-at" style="color-scheme:dark;">
+                        <label class="field-label" style="margin-top:8px;">&#128197; Exam End Date &amp; Time <span
+                                style="color:#64748b; font-weight:400;">(Optional)</span></label>
+                        <input type="datetime-local" id="exam-end-at" style="color-scheme:dark;">
+                        <div
+                            style="font-size:11px; color:#64748b; margin:4px 0 12px; padding:8px 12px; background:rgba(0,212,255,0.05); border-radius:6px; border-left:2px solid rgba(0,212,255,0.3);">
+                            &#128274; Students can only access the exam during this window. Leave blank for no
+                            restriction.</div>
+                        <div style="display:flex; gap:8px; margin:12px 0;">
+                            <button onclick="addQBlock('mcq')" class="secondary"
+                                style="width:auto; padding:8px 14px; font-size:12px;">+ MCQ</button>
+                            <button onclick="addQBlock('long')" class="secondary"
+                                style="width:auto; padding:8px 14px; font-size:12px;">+ Long</button>
+                            <button onclick="addQBlock('code')" class="secondary"
+                                style="width:auto; padding:8px 14px; font-size:12px;">+ Code</button>
+                        </div>
+                        <div id="q-area"></div>
+                        <button onclick="saveExam()" style="margin-top:10px;"><i class="fas fa-save"></i> Save
+                            Exam</button>
+                    </div>
+                    <div class="card">
+                        <label class="field-label">Saved Exams</label>
+                        <div id="exam-list-mini"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Assign Panel -->
+            <div id="panel-assign" class="panel">
+                <div class="panel-header">
+                    <div class="panel-header-accent"></div>
+                    <h2>Assign Exams</h2>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+                    <div class="card"><label class="field-label">Select Exam</label>
+                        <div id="assign-exam-list"></div>
+                    </div>
+                    <div class="card"><label class="field-label">Select Groups</label>
+                        <div id="assign-group-list"></div>
+                    </div>
+                </div>
+                <button onclick="doAssign()" style="margin-top:16px; max-width:300px;"><i class="fas fa-check"></i>
+                    Assign to Groups</button>
+            </div>
+
+            <!-- Manage Groups Panel -->
+            <div id="panel-groups" class="panel">
+                <div class="panel-header">
+                    <div class="panel-header-accent"></div>
+                    <h2>Manage Groups</h2>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+                    <div class="card">
+                        <label class="field-label">Group Name</label>
+                        <input type="text" id="group-name" placeholder="e.g. CS Section A">
+                        <label class="field-label">Select Students</label>
+                        <div id="group-student-checklist"
+                            style="max-height:300px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px;">
+                        </div>
+                        <button onclick="saveGroup()" style="margin-top:15px;"><i class="fas fa-save"></i> Save
+                            Group</button>
+                    </div>
+                    <div class="card"><label class="field-label">Existing Groups</label>
+                        <div id="existing-groups-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manage Exams Panel -->
+            <div id="panel-manage" class="panel">
+                <div class="panel-header">
+                    <div class="panel-header-accent"></div>
+                    <h2>Manage Exams</h2>
+                </div>
+                <div class="card">
+                    <div id="manage-exam-list"></div>
+                </div>
+            </div>
+
+            <!-- Results Panel -->
+            <div id="panel-results" class="panel">
+                <div class="panel-header">
+                    <div class="panel-header-accent"></div>
+                    <h2>Exam Results</h2>
+                </div>
+                <div id="results-student-list"></div>
+                <div id="results-history-view" class="hidden">
+                    <button class="secondary" onclick="backToStudentList()"
+                        style="width:auto; margin-bottom:15px;">&larr; Back to Students</button>
+                    <div class="card">
+                        <h2 id="history-student-name"
+                            style="font-family:var(--font-display); color:var(--text-primary); margin:0 0 20px 0;">
+                            History</h2>
+                        <div id="exam-history-list"></div>
+                    </div>
+                </div>
+                <div id="results-detail-view" class="hidden">
+                    <button class="secondary" onclick="backToHistory()" style="width:auto; margin-bottom:15px;">&larr;
+                        Back to Exam History</button>
+                    <div class="card">
+                        <div
+                            style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
+                            <div>
+                                <h2 id="res-student-name"
+                                    style="font-family:var(--font-display); color:var(--text-primary); margin:0;"></h2>
+                                <div id="res-exam-title"
+                                    style="font-size:13px; color:var(--text-muted); margin-top:4px;"></div>
+                            </div>
+                            <div id="res-score-badge" class="badge" style="font-size:14px;">Not Graded</div>
+                        </div>
+                        <div style="display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
+                            <button onclick="runAutoCorrect()" class="ai-btn" style="width:auto; padding:10px 20px;"><i
+                                    class="fas fa-magic"></i> &nbsp; Run AI Auto-Correction</button>
+                            <button onclick="saveManualGrades()" class="secondary"
+                                style="width:auto; padding:10px 20px;"><i class="fas fa-save"></i> &nbsp; Save
+                                Grades</button>
+                        </div>
+                        <!-- Proctoring Report -->
+                        <div id="proctor-report-section"
+                            style="display:none; margin-bottom:20px; border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden;">
+                            <div onclick="toggleProctorReport()" class="proctor-header"
+                                style="display:flex; justify-content:space-between; align-items:center;">
+                                <div style="display:flex; align-items:center; gap:10px;">
+                                    <i class="fas fa-shield-alt" style="color:var(--accent);"></i>
+                                    <span style="font-weight:600; font-size:14px; color:var(--text-primary);">Proctoring
+                                        Report</span>
+                                    <span id="proctor-summary-line" style="font-size:12px;"></span>
+                                </div>
+                                <i id="proctor-chevron" class="fas fa-chevron-down"
+                                    style="transition:transform 0.2s; color:var(--text-muted);"></i>
+                            </div>
+                            <div id="proctor-report-body" style="display:none; padding:18px;">
+                                <div style="display:flex; align-items:center; gap:20px; margin-bottom:16px;">
+                                    <div id="cheating-score-display" style="text-align:center; min-width:80px;"></div>
+                                    <div>
+                                        <div
+                                            style="font-weight:600; font-size:15px; margin-bottom:4px; color:var(--text-primary);">
+                                            Integrity Assessment</div>
+                                        <div style="font-size:12px; color:var(--text-muted);">Based on proctoring
+                                            violations detected during the exam.</div>
+                                    </div>
+                                </div>
+                                <table style="margin-bottom:16px;">
+                                    <thead>
+                                        <tr>
+                                            <th>Violation</th>
+                                            <th>Count</th>
+                                            <th>Points</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="vio-summary-body"></tbody>
+                                </table>
+                                <div
+                                    style="font-weight:600; font-size:13px; margin-bottom:8px; color:var(--text-primary);">
+                                    📸 Violation Evidence</div>
+                                <div id="vio-photo-grid"
+                                    style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px;">
+                                </div>
+                            </div>
+                        </div>
+                        <div id="results-content"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- ANALYTICS PANEL — injected into admin content via JS -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const content = document.querySelector('#admin-screen .content');
+            if (content && !document.getElementById('panel-analytics')) {
+                const panel = document.createElement('div');
+                panel.id = 'panel-analytics';
+                panel.className = 'panel';
+                panel.innerHTML = '<div class="panel-header"><div class="panel-header-accent"></div><h2>Analytics Dashboard</h2></div><div id="analytics-content" style="padding-top:8px;"><div style="color:#94a3b8; text-align:center; padding:40px;">Click Analytics in the sidebar to load.</div></div>';
+                content.appendChild(panel);
+            }
+        });
+    </script>
+
+    <!-- STUDENT SCREEN -->
+    <div id="student-screen" class="hidden"
+        style="width:100vw; height:100vh; background:var(--bg-base); padding:40px; position:fixed; inset:0; z-index:100; overflow-y:auto;">
+        <div style="max-width:780px; margin:0 auto;">
+            <div
+                style="display:flex; justify-content:space-between; align-items:center; margin-bottom:32px; padding-bottom:20px; border-bottom:1px solid var(--border-light);">
+                <div>
+                    <div
+                        style="font-family:'Rajdhani',sans-serif; font-size:26px; font-weight:700; color:var(--text-primary);">
+                        STUDENT DASHBOARD</div>
+                </div>
+                <button onclick="location.reload()" class="danger" style="width:auto; padding:10px 20px;"><i
+                        class="fas fa-sign-out-alt" style="margin-right:6px;"></i> LOGOUT</button>
+            </div>
+
+            <div class="auth-tabs" style="margin-bottom:20px;">
+                <button class="auth-tab active" id="tab-stu-exams" onclick="switchStudentTab('exams')">My Exams</button>
+                <button class="auth-tab" id="tab-stu-results" onclick="switchStudentTab('results')">My Results</button>
+            </div>
+
+            <div id="my-exam-list"></div>
+            <div id="my-results-list" class="hidden"></div>
+        </div>
+    </div>
+
+    <!-- DEVICE SELECTOR MODAL -->
+    <div id="device-selector"
+        style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(12px); z-index:300; align-items:center; justify-content:center;">
+        <div class="device-modal">
+            <h2 style="font-family:var(--font-display); color:var(--accent); margin-top:0; letter-spacing:0.05em;"><i
+                    class="fas fa-video"></i> CAMERA SETUP</h2>
+            <p style="color:var(--text-muted); font-size:14px; margin-bottom:20px;">Select your physical webcam and
+                microphone before starting.</p>
+            <div style="text-align:left; margin-bottom:12px;">
+                <label class="field-label">Camera</label>
+                <select id="sel-video" onchange="previewDevice()"></select>
+            </div>
+            <div style="text-align:left; margin-bottom:12px;">
+                <label class="field-label">Microphone</label>
+                <select id="sel-audio" onchange="previewDevice()"></select>
+            </div>
+            <div
+                style="background:#000; border-radius:var(--radius-md); overflow:hidden; height:200px; margin:15px 0; border:1px solid var(--border);">
+                <video id="preview-video" autoplay muted playsinline
+                    style="width:100%; height:100%; object-fit:cover;"></video>
+            </div>
+            <div id="preview-status"
+                style="font-family:var(--font-mono); font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button onclick="cancelDeviceSelect()" class="secondary" style="flex:1;">Cancel</button>
+                <button onclick="confirmDeviceSelect()" style="flex:1;"><i class="fas fa-check"></i> Confirm &
+                    Start</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- EXAM INTERFACE -->
+    <div id="exam-interface" style="display:none; position:fixed; inset:0; background:var(--bg-base); z-index:200;">
+        <div class="violation-overlay" id="v-overlay">
+            <div class="vio-icon"><i class="fas fa-exclamation-triangle"></i></div>
+            <h1 id="v-msg">VIOLATION</h1>
+            <p style="font-family:'DM Sans',sans-serif; font-size:16px; opacity:0.8; margin:0;">Proctoring system has
+                detected suspicious activity</p>
+        </div>
+        <div class="exam-sidebar">
+            <div style="font-family:'Rajdhani',sans-serif; font-size:13px; font-weight:700; color:var(--accent); letter-spacing:0.1em; margin-bottom:12px; text-transform:uppercase;"
+                id="paper-title-sidebar">Exam</div>
+            <div
+                style="text-align:center; margin-bottom:16px; padding:14px; background:rgba(0,212,255,0.04); border:1px solid var(--border-accent); border-radius:var(--radius-md);">
+                <div
+                    style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted); letter-spacing:0.2em; margin-bottom:6px;">
+                    TIME REMAINING</div>
+                <div id="exam-countdown"
+                    style="font-family:'JetBrains Mono',monospace; font-size:30px; font-weight:600; color:var(--success); letter-spacing:0.05em;">
+                    --:--</div>
+            </div>
+            <div class="exam-cam-wrap monitoring" id="exam-cam-wrap"><video id="exam-video" autoplay muted
+                    playsinline></video></div>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+                <div
+                    style="flex:1; text-align:center; padding:6px; background:rgba(0,255,157,0.05); border:1px solid rgba(0,255,157,0.15); border-radius:6px; font-size:10px; font-family:'JetBrains Mono',monospace; color:var(--success);">
+                    <i class="fas fa-user"></i><br>FACE
+                </div>
+                <div
+                    style="flex:1; text-align:center; padding:6px; background:rgba(0,255,157,0.05); border:1px solid rgba(0,255,157,0.15); border-radius:6px; font-size:10px; font-family:'JetBrains Mono',monospace; color:var(--success);">
+                    <i class="fas fa-microphone"></i><br>AUDIO
+                </div>
+                <div
+                    style="flex:1; text-align:center; padding:6px; background:rgba(0,255,157,0.05); border:1px solid rgba(0,255,157,0.15); border-radius:6px; font-size:10px; font-family:'JetBrains Mono',monospace; color:var(--success);">
+                    <i class="fas fa-eye"></i><br>GAZE
+                </div>
+            </div>
+            <div style="margin-top:14px;">
+                <div
+                    style="font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-muted); letter-spacing:0.15em; margin-bottom:6px;">
+                    AUDIO MONITOR</div>
+                <div class="audio-bars" id="audio-bars-display">
+                    <div class="audio-bar" style="height:4px;"></div>
+                    <div class="audio-bar" style="height:8px;"></div>
+                    <div class="audio-bar" style="height:6px;"></div>
+                    <div class="audio-bar" style="height:10px;"></div>
+                    <div class="audio-bar" style="height:7px;"></div>
+                    <div class="audio-bar" style="height:4px;"></div>
+                    <div class="audio-bar" style="height:12px;"></div>
+                    <div class="audio-bar" style="height:5px;"></div>
+                    <div class="audio-bar" style="height:8px;"></div>
+                    <div class="audio-bar" style="height:6px;"></div>
+                    <div class="audio-bar" style="height:3px;"></div>
+                    <div class="audio-bar" style="height:9px;"></div>
+                </div>
+                <div style="display:none;">
+                    <div id="audio-level" class="audio-bar-fill"></div>
+                </div>
+            </div>
+            <div class="monitor-status">
+                <div class="monitor-dot"></div> MONITORING ACTIVE
+            </div>
+            <div style="margin-top:16px;">
+                <div
+                    style="font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-muted); letter-spacing:0.15em; margin-bottom:8px;">
+                    QUESTIONS</div>
+                <div id="q-nav-grid" style="display:flex; flex-wrap:wrap; gap:5px;"></div>
+            </div>
+            <div id="autosave-indicator"
+                style="margin-top:auto; padding-top:16px; font-size:11px; color:var(--success); text-align:center; opacity:0.3; font-family:'JetBrains Mono',monospace; transition:opacity 0.5s; letter-spacing:0.1em;">
+                ✓ SAVED</div>
+            <button onclick="submitPaper()" class="danger"
+                style="margin-top:10px; font-family:'Rajdhani',sans-serif; letter-spacing:0.1em;"><i
+                    class="fas fa-paper-plane" style="margin-right:6px;"></i> SUBMIT EXAM</button>
+        </div>
+        <div class="exam-main">
+            <div id="watermark-overlay"></div>
+            <div class="exam-topbar">
+                <div>
+                    <div style="font-family:'Rajdhani',sans-serif; font-size:18px; font-weight:700; color:var(--text-primary);"
+                        id="paper-title">Exam</div>
+                    <div
+                        style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted); margin-top:2px; letter-spacing:0.1em;">
+                        SECURE EXAMINATION IN PROGRESS</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <div
+                        style="width:8px; height:8px; background:var(--danger); border-radius:50%; animation:blink 1s ease infinite;">
+                    </div>
+                    <span
+                        style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--danger); letter-spacing:0.1em;">PROCTORED</span>
+                </div>
+            </div>
+            <div class="exam-content-area" id="paper-content"></div>
+        </div>
+    </div>
+
+    <!-- SUBMISSION RECEIPT SCREEN -->
+    <div id="receipt-screen"
+        style="display:none; position:fixed; inset:0; background:#050B18; z-index:300; align-items:center; justify-content:center; flex-direction:column;">
+        <div style="text-align:center; max-width:500px; padding:40px;">
+            <div
+                style="width:80px; height:80px; border-radius:50%; background:rgba(0,255,157,0.1); border:2px solid #00FF9D; display:flex; align-items:center; justify-content:center; margin:0 auto 24px; animation:glowPulse 2s infinite;">
+                <i class="fas fa-check" style="font-size:32px; color:#00FF9D;"></i>
+            </div>
+            <h1 style="font-family:'Rajdhani',sans-serif; color:#F1F5F9; font-size:32px; margin:0 0 8px;">EXAM SUBMITTED
+            </h1>
+            <p style="color:#64748B; font-size:14px; margin:0 0 32px;">Your responses have been securely recorded</p>
+            <div
+                style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:20px; text-align:left; font-family:'JetBrains Mono',monospace; font-size:13px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span
+                        style="color:#475569;">EXAM</span><span id="receipt-exam-title" style="color:#F1F5F9;"></span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span
+                        style="color:#475569;">ATTEMPT ID</span><span id="receipt-attempt-id"
+                        style="color:#00D4FF; font-size:11px;"></span></div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span
+                        style="color:#475569;">SUBMITTED AT</span><span id="receipt-timestamp"
+                        style="color:#F1F5F9;"></span></div>
+                <div style="display:flex; justify-content:space-between;"><span
+                        style="color:#475569;">STATUS</span><span style="color:#00FF9D;">✓ RECEIVED</span></div>
+            </div>
+            <p style="color:#334155; font-size:12px; margin-top:20px;">Redirecting to dashboard...</p>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>

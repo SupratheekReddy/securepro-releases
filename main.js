@@ -179,11 +179,17 @@ function createWindow() {
   // === SCREEN BLACKOUT IPC ===
   ipcMain.on('show-blackout', () => {
     createBlackoutWindows();
-    console.log('[BLACKOUT] Screen blackout activated');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setKiosk(true); // Locks down app, forces fullscreen, hides taskbar
+    }
+    console.log('[BLACKOUT] Screen blackout activated along with Kiosk fullscreen');
   });
 
   ipcMain.on('hide-blackout', () => {
     destroyBlackoutWindows();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setKiosk(false); // Remove fullscreen lock when exam ends
+    }
     console.log('[BLACKOUT] Screen blackout deactivated');
   });
 

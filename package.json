@@ -1,6 +1,6 @@
 {
   "name": "secure-exam-system",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "SecurePro AI Exam Proctoring System",
   "main": "main.js",
   "author": "Admin",

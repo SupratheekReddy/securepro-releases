@@ -42,9 +42,9 @@ let lastVoiceViolationTs = 0;
 let roomAudioBaseline = { calibrated: false, rms: 0.012, speechRatio: 0.25, zcr: 0.08 };
 let roomAudioCalibration = { active: false, endsAt: 0, rmsSamples: [], speechRatioSamples: [], zcrSamples: [] };
 const AUDIO_CALIBRATION_MS = 4000;
-const VOICE_MIN_ACTIVE_MS = 700;
-const VOICE_MIN_GAP_MS = 6000;
-const MIN_VOICE_RMS = 0.02;
+const VOICE_MIN_ACTIVE_MS = 450;
+const VOICE_MIN_GAP_MS = 5000;
+const MIN_VOICE_RMS = 0.012;
 const OBJECT_DETECTION_STREAK_REQUIRED = 2;
 let objectDetectionStreak = { phone: 0, object: 0 };
 
@@ -2424,15 +2424,18 @@ function getAudioFeatures() {
 
 function isLikelyVoice(features) {
     if (!features) return false;
-    const rmsGate = Math.max(MIN_VOICE_RMS, roomAudioBaseline.rms * 2.2);
-    const speechGate = Math.max(0.24, roomAudioBaseline.speechRatio + 0.08);
-    const zcrMin = Math.max(0.02, roomAudioBaseline.zcr * 0.6);
-    const zcrMax = 0.22;
+    const rmsGate = Math.max(MIN_VOICE_RMS, roomAudioBaseline.rms * 1.35);
+    const speechGate = Math.max(0.16, roomAudioBaseline.speechRatio + 0.03);
+    const zcrMin = Math.max(0.01, roomAudioBaseline.zcr * 0.35);
+    const zcrMax = 0.30;
+    const highRatioMax = 0.72;
+
+    const primaryVoiceHit = features.rms >= rmsGate && features.speechRatio >= speechGate;
+    const strongSpeechHit = features.rms >= (rmsGate * 0.9) && features.speechRatio >= (speechGate + 0.04);
 
     return (
-        features.rms >= rmsGate &&
-        features.speechRatio >= speechGate &&
-        features.highRatio <= 0.52 &&
+        (primaryVoiceHit || strongSpeechHit) &&
+        features.highRatio <= highRatioMax &&
         features.zcr >= zcrMin &&
         features.zcr <= zcrMax
     );

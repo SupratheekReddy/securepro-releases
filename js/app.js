@@ -1,7 +1,10 @@
 // ==========================================
-// SecurePro — Main Application Logic
+// SecurePro â€” Main Application Logic
 // Depends on: config.js (globals), api.js (code execution)
 // ==========================================
+
+// Screen capture for violation proof
+const { desktopCapturer } = require('electron');
 
 let violationLog = [];
 let lastVioTime = {};
@@ -28,6 +31,69 @@ let lastActivityTime = Date.now();
 let inactivityInterval = null;
 let questionTimeLimits = {};
 let isDisqualified = false;
+
+// Audio recording for noise proof
+let noiseRecorder = null;
+let noiseChunks = [];
+let audioTimeDataArray = null;
+let audioFrameLastTs = 0;
+let voiceActiveMs = 0;
+let lastVoiceViolationTs = 0;
+let roomAudioBaseline = { calibrated: false, rms: 0.012, speechRatio: 0.25, zcr: 0.08 };
+let roomAudioCalibration = { active: false, endsAt: 0, rmsSamples: [], speechRatioSamples: [], zcrSamples: [] };
+const AUDIO_CALIBRATION_MS = 4000;
+const VOICE_MIN_ACTIVE_MS = 700;
+const VOICE_MIN_GAP_MS = 6000;
+const MIN_VOICE_RMS = 0.02;
+
+// â”€â”€ SCREEN SCREENSHOT (for TAB_SWITCH proof) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function captureScreenScreenshot() {
+    try {
+        const sources = await desktopCapturer.getSources({
+            types: ['screen'],
+            thumbnailSize: { width: 1280, height: 720 }
+        });
+        if (sources && sources.length > 0) {
+            return sources[0].thumbnail.toDataURL(); // Returns PNG data URL
+        }
+    } catch (e) {
+        console.warn('[PROOF] Screen capture failed:', e.message);
+    }
+    return null;
+}
+
+// â”€â”€ AUDIO RECORDING (for NOISE_DETECTED proof) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function recordNoiseAudio(durationMs = 5000) {
+    return new Promise((resolve) => {
+        if (!currentStream || noiseRecorder) { resolve(null); return; }
+        try {
+            const audioTracks = currentStream.getAudioTracks();
+            if (!audioTracks.length) { resolve(null); return; }
+            const audioStream = new MediaStream(audioTracks);
+            noiseChunks = [];
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus' : 'audio/webm';
+            noiseRecorder = new MediaRecorder(audioStream, { mimeType });
+            noiseRecorder.ondataavailable = (e) => { if (e.data.size > 0) noiseChunks.push(e.data); };
+            noiseRecorder.onstop = () => {
+                noiseRecorder = null;
+                const blob = new Blob(noiseChunks, { type: 'audio/webm' });
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result); // Base64 data URL
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(blob);
+            };
+            noiseRecorder.start();
+            setTimeout(() => {
+                if (noiseRecorder && noiseRecorder.state === 'recording') noiseRecorder.stop();
+            }, durationMs);
+        } catch (e) {
+            console.warn('[PROOF] Audio recording failed:', e.message);
+            noiseRecorder = null;
+            resolve(null);
+        }
+    });
+}
 
 // Fisher-Yates shuffle utility
 function shuffleArray(arr) {
@@ -57,6 +123,18 @@ function blockClipboardEvents(e) {
         showVio('COPY_PASTE_ATTEMPT');
     }
 }
+
+// Block trackpad pinch-zoom and ctrl+scroll (prevents gesture-based navigation)
+function blockGestureWheel(e) {
+    if (e.ctrlKey || e.metaKey) {
+        e.preventDefault(); // Block pinch-zoom / ctrl+scroll
+    }
+}
+// Block native macOS gesture events
+function blockNativeGesture(e) {
+    e.preventDefault();
+}
+
 
 function captureViolationSnapshot() {
     const v = document.getElementById('exam-video');
@@ -96,13 +174,13 @@ const { ipcRenderer } = require('electron');
 ipcRenderer.on('banned-process-detected', (event, data) => {
     console.warn('[PROCTOR] Banned processes detected:', data.processes);
     showVio('BANNED_PROCESS_RUNNING');
-    toast(`⚠️ Banned software detected: ${data.processes.join(', ')}`, true);
+    toast(`âš ï¸ Banned software detected: ${data.processes.join(', ')}`, true);
 });
 
 ipcRenderer.on('multiple-displays-detected', (event, data) => {
     multiDisplayBlocked = true;
     showVio('MULTIPLE_DISPLAYS');
-    toast(`🖥️ Multiple monitors detected (${data.count}). Disconnect external displays!`, true);
+    toast(`ðŸ–¥ï¸ Multiple monitors detected (${data.count}). Disconnect external displays!`, true);
 });
 
 ipcRenderer.on('displays-ok', () => {
@@ -132,15 +210,15 @@ function showUpdateBanner(state, data = {}) {
     if (state === 'available') {
         bar.innerHTML = `
             <div style="display:flex; align-items:center; gap:12px;">
-                <span style="font-size:18px;">🚀</span>
+                <span style="font-size:18px;">ðŸš€</span>
                 <div>
-                    <div style="font-weight:700; color:#f1f5f9;">Update Available — v${data.version}</div>
+                    <div style="font-weight:700; color:#f1f5f9;">Update Available â€” v${data.version}</div>
                     <div style="color:#64748b; font-size:11px;">A new version of SecurePro is ready to download.</div>
                 </div>
             </div>
             <div style="display:flex; gap:10px;">
                 <button onclick="ipcRenderer.send('start-update-download')" style="background:linear-gradient(135deg,#00D4FF,#818cf8); color:#000; font-weight:700; border:none; padding:8px 18px; border-radius:8px; cursor:pointer; font-size:12px; width:auto;">
-                    ⬇ Download Update
+                    â¬‡ Download Update
                 </button>
                 <button onclick="document.getElementById('update-banner').remove()" style="background:rgba(255,255,255,0.07); color:#94a3b8; border:1px solid rgba(255,255,255,0.1); padding:8px 14px; border-radius:8px; cursor:pointer; font-size:12px; width:auto;">
                     Later
@@ -151,7 +229,7 @@ function showUpdateBanner(state, data = {}) {
         bar.innerHTML = `
             <div style="flex:1;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                    <span style="font-weight:700; color:#f1f5f9;">⬇ Downloading update... ${pct}%</span>
+                    <span style="font-weight:700; color:#f1f5f9;">â¬‡ Downloading update... ${pct}%</span>
                     <span style="color:#64748b; font-size:11px;">${formatBytes(data.bytesPerSecond || 0)}/s</span>
                 </div>
                 <div style="background:rgba(255,255,255,0.07); border-radius:4px; height:6px; overflow:hidden;">
@@ -161,24 +239,24 @@ function showUpdateBanner(state, data = {}) {
     } else if (state === 'ready') {
         bar.innerHTML = `
             <div style="display:flex; align-items:center; gap:12px;">
-                <span style="font-size:18px;">✅</span>
+                <span style="font-size:18px;">âœ…</span>
                 <div>
-                    <div style="font-weight:700; color:#00FF9D;">Update Ready — v${data.version}</div>
+                    <div style="font-weight:700; color:#00FF9D;">Update Ready â€” v${data.version}</div>
                     <div style="color:#64748b; font-size:11px;">Restart SecurePro to apply the update.</div>
                 </div>
             </div>
             <div style="display:flex; gap:10px;">
                 <button onclick="ipcRenderer.send('install-update-now')" style="background:linear-gradient(135deg,#00FF9D,#00D4FF); color:#000; font-weight:700; border:none; padding:8px 18px; border-radius:8px; cursor:pointer; font-size:12px; width:auto;">
-                    🔄 Restart & Update
+                    ðŸ”„ Restart & Update
                 </button>
             </div>`;
     } else if (state === 'error') {
         bar.innerHTML = `
             <div style="display:flex; align-items:center; gap:10px;">
-                <span>⚠️</span>
+                <span>âš ï¸</span>
                 <span style="color:#f87171;">Update check failed: ${data.message}</span>
             </div>
-            <button onclick="document.getElementById('update-banner').remove()" style="background:rgba(255,255,255,0.07); color:#94a3b8; border:1px solid rgba(255,255,255,0.1); padding:6px 12px; border-radius:6px; cursor:pointer; font-size:11px; width:auto;">✕</button>`;
+            <button onclick="document.getElementById('update-banner').remove()" style="background:rgba(255,255,255,0.07); color:#94a3b8; border:1px solid rgba(255,255,255,0.1); padding:6px 12px; border-radius:6px; cursor:pointer; font-size:11px; width:auto;">âœ•</button>`;
     }
 }
 
@@ -206,14 +284,14 @@ async function checkNetworkIP() {
         else if (ip !== baselineIP) {
             console.warn('[NETWORK] IP changed from', baselineIP, 'to', ip);
             showVio('NETWORK_ANOMALY');
-            toast('🌐 Network change detected! IP address has changed mid-exam.', true);
+            toast('ðŸŒ Network change detected! IP address has changed mid-exam.', true);
         }
     } catch (e) { console.warn('IP check failed:', e.message); }
 }
 
 // === PHASE 2: PERIODIC FACE RE-VERIFICATION ===
 async function periodicFaceReverify() {
-    if (!currentStream || !currentStudent) return;
+    if (!currentStream || !currentStudent || isTestBypassUser()) return;
     try {
         const v = document.getElementById('exam-video');
         if (!v || v.videoWidth === 0) return;
@@ -232,7 +310,7 @@ async function periodicFaceReverify() {
             if (err) { console.warn('Face reverify error:', err.message); return; }
             if (!data.FaceMatches || data.FaceMatches.length === 0 || data.FaceMatches[0].Similarity < 85) {
                 showVio('IDENTITY_MISMATCH');
-                toast('⚠️ Face does not match registered photo!', true);
+                toast('âš ï¸ Face does not match registered photo!', true);
             } else {
                 console.log('[REVERIFY] Identity confirmed, similarity:', data.FaceMatches[0].Similarity.toFixed(1) + '%');
             }
@@ -275,11 +353,15 @@ function populateWatermark() {
     if (!el) return;
     const name = studentDB[currentStudent]?.name || currentStudent;
     const ts = new Date().toLocaleString();
-    const text = `${currentStudent} · ${name} · ${ts}`;
+    const text = `${currentStudent} Â· ${name} Â· ${ts}`;
     el.innerHTML = Array(60).fill(`<span style="padding:20px 40px; font-size:11px; font-family:monospace; color:white; white-space:nowrap;">${escapeHtml(text)}</span>`).join('');
 }
 
 function handleTabSwitch() { if (document.hidden || document.visibilityState === 'hidden') showVio('TAB_SWITCH'); }
+
+function isTestBypassUser(studentId = currentStudent) {
+    return studentId === TEST_BYPASS_ID;
+}
 
 // --- FORCE HARDWARE UNLOCK ---
 function stopAllCameras() {
@@ -341,7 +423,7 @@ async function handleStudentLogin() {
         }
 
         // --- REAL FLOW: Generate random 6-digit OTP ---
-        otpCode = String(Math.floor(100000 + Math.random() * 900000)); // 100000–999999
+        otpCode = String(Math.floor(100000 + Math.random() * 900000)); // 100000â€“999999
 
         const studentEmail = studentDB[id].email;
         const studentName = studentDB[id].name || id;
@@ -363,7 +445,7 @@ async function handleStudentLogin() {
         // Mask email for privacy (s****@gmail.com)
         const maskedEmail = studentEmail.replace(/^(.)(.*)(@.*)$/, (_, a, b, c) => a + '*'.repeat(Math.min(b.length, 6)) + c);
 
-        // Send OTP via EmailJS REST API (Node.js https — bypasses SDK browser check)
+        // Send OTP via EmailJS REST API (Node.js https â€” bypasses SDK browser check)
         console.log('[OTP] Sending to:', studentEmail, '| Name:', studentName, '| OTP:', otpCode);
         const https = require('https');
         const postData = JSON.stringify({
@@ -421,6 +503,20 @@ async function handleStudentLogin() {
 
     } else if (btn.innerText.trim().toUpperCase() === "VERIFY OTP") {
         if (document.getElementById('login-otp').value !== otpCode) return toast("Wrong OTP", true);
+
+        // Test account bypass: skip face scan completely
+        if (isTestBypassUser(id)) {
+            currentStudent = id;
+            document.getElementById('otp-group').classList.add('hidden');
+            document.getElementById('cam-container').classList.add('hidden');
+            document.getElementById('auth-screen').style.display = 'none';
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('student-screen').style.display = 'block';
+            document.getElementById('student-screen').classList.remove('hidden');
+            loadMyExams();
+            return;
+        }
+
         document.getElementById('otp-group').classList.add('hidden');
         document.getElementById('cam-container').classList.remove('hidden');
         btn.innerText = "Scanning Face..."; btn.disabled = true;
@@ -485,6 +581,17 @@ async function handleStudentLogin() {
 }
 
 async function verifyFace(id, stream, statusEl, btn) {
+    if (isTestBypassUser(id)) {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        currentStudent = id;
+        document.getElementById('auth-screen').style.display = 'none';
+        document.getElementById('auth-screen').classList.add('hidden');
+        document.getElementById('student-screen').style.display = 'block';
+        document.getElementById('student-screen').classList.remove('hidden');
+        loadMyExams();
+        return;
+    }
+
     const v = document.getElementById('login-video');
     if (!v.videoWidth || !v.videoHeight) {
         if (statusEl) statusEl.innerText = '\u26a0\ufe0f Video not ready, retrying...';
@@ -668,7 +775,7 @@ async function loadAnalytics() {
             }
         });
 
-        const vioTypeLabels = { NO_FACE: 'No Face', MULTIPLE_FACES: 'Multi-Face', PHONE_DETECTED: 'Phone', TAB_SWITCH: 'Tab Switch', LOOKING_AWAY: 'Looking Away', NOISE_DETECTED: 'Noise', COPY_PASTE_ATTEMPT: 'Copy/Paste', AI_PASTE_DETECTED: 'AI Paste', LIP_MOVEMENT: 'Lip Move', BANNED_PROCESS_RUNNING: 'Banned App', MULTIPLE_DISPLAYS: 'Multi-Display', NETWORK_ANOMALY: 'Network', IDENTITY_MISMATCH: 'Identity', UNNATURAL_TYPING: 'Unnat. Typing', CURSOR_OUT_OF_BOUNDS: 'Cursor Out', INACTIVITY_DETECTED: 'Inactivity' };
+        const vioTypeLabels = { NO_FACE: 'No Face', MULTIPLE_FACES: 'Multi-Face', PHONE_DETECTED: 'Phone', TAB_SWITCH: 'Tab Switch', LOOKING_AWAY: 'Looking Away', NOISE_DETECTED: 'Voice', COPY_PASTE_ATTEMPT: 'Copy/Paste', AI_PASTE_DETECTED: 'AI Paste', LIP_MOVEMENT: 'Lip Move', BANNED_PROCESS_RUNNING: 'Banned App', MULTIPLE_DISPLAYS: 'Multi-Display', NETWORK_ANOMALY: 'Network', IDENTITY_MISMATCH: 'Identity', UNNATURAL_TYPING: 'Unnat. Typing', CURSOR_OUT_OF_BOUNDS: 'Cursor Out', INACTIVITY_DETECTED: 'Inactivity' };
 
         const topVios = Object.entries(vioTypeCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
@@ -694,7 +801,7 @@ async function loadAnalytics() {
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px;">
             <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:14px; padding:20px;">
-                <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px;">🎯 Pass / Fail Distribution</div>
+                <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px;">ðŸŽ¯ Pass / Fail Distribution</div>
                 <div style="display:flex; align-items:center; justify-content:center; gap:30px;">
                     <div style="text-align:center;">
                         <div style="font-size:42px; font-weight:700; color:#00FF9D;">${passCount}</div>
@@ -716,7 +823,7 @@ async function loadAnalytics() {
             </div>
 
             <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:14px; padding:20px;">
-                <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px;">⚠️ Top Violation Types</div>
+                <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px;">âš ï¸ Top Violation Types</div>
                 ${topVios.length === 0 ? '<div style="color:#64748b; font-size:13px;">No violations recorded.</div>' : topVios.map(([type, count]) => {
             const maxVio = topVios[0][1];
             const pct = Math.round(count / maxVio * 100);
@@ -728,11 +835,11 @@ async function loadAnalytics() {
         </div>
 
         <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:14px; padding:20px;">
-            <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px;">📊 Per-Exam Score Breakdown</div>
+            <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px;">ðŸ“Š Per-Exam Score Breakdown</div>
             ${Object.keys(examStats).length === 0 ? '<div style="color:#64748b;">No exam data yet.</div>' : `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse;"><thead><tr style="background:rgba(255,255,255,0.03); text-align:left;"><th style="padding:10px 12px; font-size:12px; color:#64748b; text-transform:uppercase;">Exam</th><th style="padding:10px 12px; font-size:12px; color:#64748b; text-transform:uppercase;">Attempts</th><th style="padding:10px 12px; font-size:12px; color:#64748b; text-transform:uppercase;">Avg Score</th><th style="padding:10px 12px; font-size:12px; color:#64748b; text-transform:uppercase;">Score Bar</th></tr></thead><tbody>${Object.values(examStats).map(es => {
             const avg = es.scores.length > 0 ? Math.round(es.scores.reduce((a, b) => a + b, 0) / es.scores.length) : null;
             const barColor = avg === null ? '#475569' : avg >= 70 ? '#00FF9D' : avg >= 40 ? '#f59e0b' : '#ef4444';
-            return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);"><td style="padding:12px; font-weight:600; color:var(--text-primary);">${escapeHtml(es.title)}</td><td style="padding:12px; color:#94a3b8;">${es.attempts}</td><td style="padding:12px; font-weight:700; color:${barColor};">${avg !== null ? avg + '%' : '—'}</td><td style="padding:12px; min-width:150px;">${avg !== null ? `<div style="height:8px; border-radius:4px; background:rgba(255,255,255,0.05);"><div style="height:100%; width:${avg}%; background:${barColor}; border-radius:4px;"></div></div>` : '<span style="color:#475569; font-size:12px;">Not graded</span>'}</td></tr>`;
+            return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);"><td style="padding:12px; font-weight:600; color:var(--text-primary);">${escapeHtml(es.title)}</td><td style="padding:12px; color:#94a3b8;">${es.attempts}</td><td style="padding:12px; font-weight:700; color:${barColor};">${avg !== null ? avg + '%' : 'â€”'}</td><td style="padding:12px; min-width:150px;">${avg !== null ? `<div style="height:8px; border-radius:4px; background:rgba(255,255,255,0.05);"><div style="height:100%; width:${avg}%; background:${barColor}; border-radius:4px;"></div></div>` : '<span style="color:#475569; font-size:12px;">Not graded</span>'}</td></tr>`;
         }).join('')}</tbody></table></div>`}
         </div>`;
 
@@ -783,7 +890,7 @@ function addQBlock(type) {
     div.innerHTML = `
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
             <span style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:${typeColor}; background:${typeColor}22; padding:3px 10px; border-radius:20px; border:1px solid ${typeColor}44;">${type.toUpperCase()}</span>
-            <button class="secondary" onclick="this.closest('.added-q').remove()" style="font-size:11px; width:auto; padding:4px 10px; color:#ef4444; border-color:rgba(239,68,68,0.3); background:rgba(239,68,68,0.08);">✕ Remove</button>
+            <button class="secondary" onclick="this.closest('.added-q').remove()" style="font-size:11px; width:auto; padding:4px 10px; color:#ef4444; border-color:rgba(239,68,68,0.3); background:rgba(239,68,68,0.08);">âœ• Remove</button>
         </div>
         <label style="font-size:11px; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">QUESTION TEXT</label>
         <input type="text" class="q-txt" placeholder="Enter your question here..." style="background:rgba(255,255,255,0.07); color:#f1f5f9; border:1px solid rgba(255,255,255,0.12); border-radius:6px; padding:8px 12px; width:100%; font-size:13px;">
@@ -846,15 +953,15 @@ async function doAssign() {
                     const student = studentDB[sid];
                     if (student && student.email) {
                         const windowInfo = (exam.startAt && exam.endAt)
-                            ? `Exam Window: ${new Date(exam.startAt).toLocaleString()} – ${new Date(exam.endAt).toLocaleString()}`
-                            : 'No specific time window — available now.';
+                            ? `Exam Window: ${new Date(exam.startAt).toLocaleString()} â€“ ${new Date(exam.endAt).toLocaleString()}`
+                            : 'No specific time window â€” available now.';
                         sendExamInvitationEmail(student, exam, windowInfo).catch(e => console.warn('Invite email failed:', e.message));
                     }
                 } else skipped++;
             }
         }
         if (total > 0) toast(`Assigned to ${total} student${total > 1 ? 's' : ''} \u2705 · Invitation emails sent!`);
-        if (skipped > 0) toast(`${skipped} already assigned — skipped`);
+        if (skipped > 0) toast(`${skipped} already assigned â€” skipped`);
     } catch (e) { toast('Assign failed: ' + e.message, true); }
 }
 
@@ -927,7 +1034,7 @@ function loadManageExams() {
         const tc = {}; (exam.questions || []).forEach(q => { tc[q.type] = (tc[q.type] || 0) + 1; });
         const tb = Object.entries(tc).map(([t, c]) => { const co = { mcq: '#dcfce7;color:#166534', long: '#e0e7ff;color:#4338ca', code: '#fef3c7;color:#92400e' }; return `<span style="padding:2px 6px; border-radius:4px; font-size:11px; background:${co[t] || '#e5e7eb;color:#374151'}">${c} ${t}</span>`; }).join(' ');
         let ac = 0; Object.values(assignDB).forEach(list => { if (list.includes(eid)) ac++; });
-        html += `<tr style="border-bottom:1px solid #e5e7eb;"><td style="padding:12px; font-weight:600;">${escapeHtml(exam.title)}</td><td style="padding:12px;">${qc}</td><td style="padding:12px;">${tb || '—'}</td><td style="padding:12px;">${ac > 0 ? ac + ' student' + (ac > 1 ? 's' : '') : '<span style="color:#94a3b8;">None</span>'}</td><td style="padding:12px; display:flex; gap:8px;">
+        html += `<tr style="border-bottom:1px solid #e5e7eb;"><td style="padding:12px; font-weight:600;">${escapeHtml(exam.title)}</td><td style="padding:12px;">${qc}</td><td style="padding:12px;">${tb || 'â€”'}</td><td style="padding:12px;">${ac > 0 ? ac + ' student' + (ac > 1 ? 's' : '') : '<span style="color:#94a3b8;">None</span>'}</td><td style="padding:12px; display:flex; gap:8px;">
             <button onclick="runPlagiarismCheck('${eid}')" class="secondary" style="width:auto; padding:6px 14px; font-size:12px; background:rgba(0,212,255,0.1); color:#00D4FF; border-color:rgba(0,212,255,0.3);"><i class="fas fa-search"></i> Check Plagiarism</button>
             <button onclick="deleteExam('${eid}')" class="danger" style="width:auto; padding:6px 14px; font-size:12px;"><i class="fas fa-trash"></i> Delete</button>
         </td></tr>`;
@@ -980,8 +1087,8 @@ async function runPlagiarismCheck(eid) {
                     const warning = `SIMILARITY WARNING: ${score}% match on Q${qIdx + 1} with student ${a2.studentId}`;
                     const warning2 = `SIMILARITY WARNING: ${score}% match on Q${qIdx + 1} with student ${a1.studentId}`;
 
-                    if (!a1.feedback[qIdx].includes('SIMILARITY')) a1.feedback[qIdx] += `<br><span style="color:#ef4444; font-weight:bold;">🚨 ${warning}</span>`;
-                    if (!a2.feedback[qIdx].includes('SIMILARITY')) a2.feedback[qIdx] += `<br><span style="color:#ef4444; font-weight:bold;">🚨 ${warning2}</span>`;
+                    if (!a1.feedback[qIdx].includes('SIMILARITY')) a1.feedback[qIdx] += `<br><span style="color:#ef4444; font-weight:bold;">ðŸš¨ ${warning}</span>`;
+                    if (!a2.feedback[qIdx].includes('SIMILARITY')) a2.feedback[qIdx] += `<br><span style="color:#ef4444; font-weight:bold;">ðŸš¨ ${warning2}</span>`;
                 }
             }
         }
@@ -1003,7 +1110,7 @@ async function runPlagiarismCheck(eid) {
         await Promise.all(savePromises);
         toast(`Done! Flagged ${flaggedCount} highly similar answers. Check Results page.`, true);
     } else {
-        toast('Done! No significant similarity found. ✅');
+        toast('Done! No significant similarity found. âœ…');
     }
 }
 
@@ -1051,7 +1158,7 @@ async function showStudentResults(sid) {
     document.getElementById('results-student-list').classList.add('hidden');
     document.getElementById('results-history-view').classList.remove('hidden');
     document.getElementById('results-detail-view').classList.add('hidden');
-    document.getElementById('history-student-name').innerText = (studentDB[sid]?.name || sid) + ' — Exam History';
+    document.getElementById('history-student-name').innerText = (studentDB[sid]?.name || sid) + ' â€” Exam History';
     const historyList = document.getElementById('exam-history-list');
     historyList.innerHTML = '<div style="color:#94a3b8; padding:20px; text-align:center;">Loading...</div>';
 
@@ -1120,8 +1227,8 @@ function viewAttemptDetails(sid, attemptId) {
         const ad = ans.isCode ? `<pre style="background:#0A0F1A; color:#CDD6F4; padding:12px; border-radius:8px; overflow-x:auto; font-size:13px; margin:0; border:1px solid rgba(255,255,255,0.06);">${escapeHtml(ans.answer)}</pre>` : `<div style="background:rgba(255,255,255,0.03); padding:12px; border:1px solid rgba(255,255,255,0.07); border-radius:6px; font-size:14px; line-height:1.6; color:var(--text-secondary);">${escapeHtml(ans.answer) || '<em style="color:var(--text-muted);">No answer provided</em>'}</div>`;
         const timeStr = ans.timeSpentSeconds != null ? (ans.timeSpentSeconds < 60 ? `${ans.timeSpentSeconds}s` : `${Math.floor(ans.timeSpentSeconds / 60)}m ${ans.timeSpentSeconds % 60}s`) : 'N/A';
         const isFast = attempt.fastAnswerFlags && attempt.fastAnswerFlags.some(q => ans.question.startsWith(q.substring(0, 30)));
-        const timeBadge = `<span style="font-size:11px; padding:2px 8px; border-radius:4px; margin-left:8px; background:${isFast ? 'rgba(255,45,85,0.1)' : 'rgba(0,212,255,0.08)'}; color:${isFast ? '#FF2D55' : '#94A3B8'}; border:1px solid ${isFast ? 'rgba(255,45,85,0.3)' : 'rgba(0,212,255,0.15)'};">⏱ ${timeStr}${isFast ? ' ⚡ FAST' : ''}</span>`;
-        content.innerHTML += `<div class="answer-block" id="ans-block-${i}"><div style="font-weight:600; margin-bottom:8px; color:var(--text-primary); display:flex; align-items:center;"><span class="q-number-chip">${i + 1}</span>${escapeHtml(ans.question)}${timeBadge}</div>${ad}<div class="ai-feedback-box" id="ai-feed-${i}" style="${ef ? 'display:block;' : ''}">${ef ? `<b>Score: ${eg}/10</b><br>${ef}` : ''}</div><div style="display:flex; align-items:center; gap:10px; margin-top:12px; padding:10px; background:rgba(0,212,255,0.04); border-radius:8px; border:1px solid var(--border-accent);"><label style="font-size:13px; font-weight:600; color:var(--accent); white-space:nowrap; font-family:var(--font-mono);">SCORE:</label><input type="number" id="manual-score-${i}" min="0" max="10" step="0.5" value="${eg}" placeholder="0–10" style="width:80px; margin-bottom:0; text-align:center; font-weight:600;"><span style="font-size:13px; color:var(--text-muted);">/ 10</span></div></div>`;
+        const timeBadge = `<span style="font-size:11px; padding:2px 8px; border-radius:4px; margin-left:8px; background:${isFast ? 'rgba(255,45,85,0.1)' : 'rgba(0,212,255,0.08)'}; color:${isFast ? '#FF2D55' : '#94A3B8'}; border:1px solid ${isFast ? 'rgba(255,45,85,0.3)' : 'rgba(0,212,255,0.15)'};">â± ${timeStr}${isFast ? ' âš¡ FAST' : ''}</span>`;
+        content.innerHTML += `<div class="answer-block" id="ans-block-${i}"><div style="font-weight:600; margin-bottom:8px; color:var(--text-primary); display:flex; align-items:center;"><span class="q-number-chip">${i + 1}</span>${escapeHtml(ans.question)}${timeBadge}</div>${ad}<div class="ai-feedback-box" id="ai-feed-${i}" style="${ef ? 'display:block;' : ''}">${ef ? `<b>Score: ${eg}/10</b><br>${ef}` : ''}</div><div style="display:flex; align-items:center; gap:10px; margin-top:12px; padding:10px; background:rgba(0,212,255,0.04); border-radius:8px; border:1px solid var(--border-accent);"><label style="font-size:13px; font-weight:600; color:var(--accent); white-space:nowrap; font-family:var(--font-mono);">SCORE:</label><input type="number" id="manual-score-${i}" min="0" max="10" step="0.5" value="${eg}" placeholder="0â€“10" style="width:80px; margin-bottom:0; text-align:center; font-weight:600;"><span style="font-size:13px; color:var(--text-muted);">/ 10</span></div></div>`;
     });
 }
 
@@ -1140,17 +1247,53 @@ function renderProctorReport(attempt) {
     if (!section) return;
     document.getElementById('cheating-score-display').innerHTML = renderScoreCircle(score);
     const color = score <= 20 ? '#10b981' : score <= 50 ? '#f59e0b' : '#ef4444';
-    document.getElementById('proctor-summary-line').innerHTML = `<span style="color:${color}; font-weight:600;">${violations.length} violations · Score: ${score}/100</span>`;
+    document.getElementById('proctor-summary-line').innerHTML = `<span style="color:${color}; font-weight:600;">${violations.length} violations Â· Score: ${score}/100</span>`;
     const weights = { NO_FACE: 8, MULTIPLE_FACES: 15, PHONE_DETECTED: 20, TAB_SWITCH: 12, LOOKING_AWAY: 4, NOISE_DETECTED: 2, COPY_PASTE_ATTEMPT: 10, AI_PASTE_DETECTED: 15, LIP_MOVEMENT: 6 };
-    const typeLabels = { NO_FACE: '👤 No Face', MULTIPLE_FACES: '👥 Multiple Faces', PHONE_DETECTED: '📱 Phone', TAB_SWITCH: '🔀 Tab Switch', LOOKING_AWAY: '👀 Looking Away', NOISE_DETECTED: '🔊 Noise', COPY_PASTE_ATTEMPT: '📋 Copy/Paste', AI_PASTE_DETECTED: '🤖 AI Paste', LIP_MOVEMENT: '👄 Lip Movement' };
+    const typeLabels = { NO_FACE: 'No Face', MULTIPLE_FACES: 'Multiple Faces', PHONE_DETECTED: 'Phone', TAB_SWITCH: 'Tab Switch', LOOKING_AWAY: 'Looking Away', NOISE_DETECTED: 'Voice Detected', COPY_PASTE_ATTEMPT: 'Copy/Paste', AI_PASTE_DETECTED: 'AI Paste', LIP_MOVEMENT: 'Lip Movement' };
     const counts = {}; violations.forEach(v => counts[v.type] = (counts[v.type] || 0) + 1);
     let rows = '';
     for (const [type, count] of Object.entries(counts)) { const pts = Math.min(count * (weights[type] || 0), 40); rows += `<tr><td style="padding:8px;">${typeLabels[type] || type}</td><td style="padding:8px; font-weight:600;">${count}</td><td style="padding:8px; color:var(--danger);">+${pts}</td></tr>`; }
     document.getElementById('vio-summary-body').innerHTML = rows || '<tr><td colspan="3" style="padding:8px; color:var(--text-muted);">No violations recorded</td></tr>';
     const grid = document.getElementById('vio-photo-grid');
     const typeColors = { NO_FACE: '#ef4444', MULTIPLE_FACES: '#ef4444', PHONE_DETECTED: '#dc2626', TAB_SWITCH: '#f59e0b', LOOKING_AWAY: '#f97316', NOISE_DETECTED: '#6366f1', COPY_PASTE_ATTEMPT: '#f59e0b', AI_PASTE_DETECTED: '#7C3AED', LIP_MOVEMENT: '#EC4899' };
-    if (violations.length === 0) { grid.innerHTML = '<p style="color:#94a3b8; font-size:13px;">No photos captured.</p>'; }
-    else { grid.innerHTML = violations.map(v => { const d = new Date(v.timestamp); const ts = d.toTimeString().split(' ')[0]; const m = Math.floor((v.timeIntoExam || 0) / 60); const sec = (v.timeIntoExam || 0) % 60; const c = typeColors[v.type] || '#6366f1'; const img = v.screenshotKey ? `<img src="${s3GetSignedUrl(v.screenshotKey)}" style="width:100%; height:110px; object-fit:cover; border-radius:6px 6px 0 0;">` : `<div style="width:100%; height:110px; background:#1e293b; border-radius:6px 6px 0 0; display:flex; align-items:center; justify-content:center; color:#475569; font-size:12px;">No image</div>`; return `<div style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; font-size:12px;">${img}<div style="padding:8px;"><div style="font-weight:700; color:${c}; margin-bottom:3px;">${typeLabels[v.type] || v.type}</div><div style="color:#64748b;">\ud83d\udd50 ${ts}</div><div style="color:#64748b;">\u23f1 ${m}m ${sec}s in</div></div></div>`; }).join(''); }
+    const proofBadge = { screen: 'ðŸ–¥ï¸ Screen', camera: 'ðŸ“· Webcam', audio: 'ðŸŽ¤ Audio', none: 'â€”' };
+    if (violations.length === 0) { grid.innerHTML = '<p style="color:#94a3b8; font-size:13px;">No proof captured.</p>'; }
+    else {
+        grid.innerHTML = violations.map(v => {
+            const d = new Date(v.timestamp);
+            const ts = d.toTimeString().split(' ')[0];
+            const mins = Math.floor((v.timeIntoExam || 0) / 60);
+            const secs = (v.timeIntoExam || 0) % 60;
+            const c = typeColors[v.type] || '#6366f1';
+            const pType = v.proofType || 'camera';
+            let proofHtml;
+            if (v.audioKey) {
+                const audioUrl = s3GetSignedUrl(v.audioKey);
+                proofHtml = `<div style="width:100%;background:#0f172a;border-radius:6px 6px 0 0;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:6px;">
+                    <i class="fas fa-volume-up" style="color:#6366f1;font-size:24px;"></i>
+                    <span style="color:#6366f1;font-size:10px;font-weight:700;">VOICE RECORDING</span>
+                    <audio controls src="${audioUrl}" style="width:100%;height:28px;"></audio>
+                </div>`;
+            } else if (v.screenshotKey) {
+                const lbl = pType === 'screen' ? 'ðŸ–¥ï¸ Screen Capture' : 'ðŸ“· Webcam Photo';
+                proofHtml = `<div style="position:relative;">
+                    <img src="${s3GetSignedUrl(v.screenshotKey)}" style="width:100%;height:110px;object-fit:cover;border-radius:6px 6px 0 0;display:block;">
+                    <span style="position:absolute;bottom:4px;left:4px;font-size:9px;background:rgba(0,0,0,0.75);color:#fff;padding:2px 5px;border-radius:3px;">${lbl}</span>
+                </div>`;
+            } else {
+                proofHtml = `<div style="width:100%;height:70px;background:#1e293b;border-radius:6px 6px 0 0;display:flex;align-items:center;justify-content:center;color:#475569;font-size:11px;">No proof captured</div>`;
+            }
+            return `<div style="border:1px solid rgba(255,255,255,0.08);background:var(--bg-card);border-radius:8px;overflow:hidden;font-size:12px;">
+                ${proofHtml}
+                <div style="padding:8px;">
+                    <div style="font-weight:700;color:${c};margin-bottom:3px;">${typeLabels[v.type] || v.type}</div>
+                    <div style="color:#64748b;">ðŸ• ${ts}</div>
+                    <div style="color:#64748b;">â± ${mins}m ${secs}s into exam</div>
+                    <div style="color:#475569;font-size:10px;margin-top:2px;">${proofBadge[pType] || pType}</div>
+                </div>
+            </div>`;
+        }).join('');
+    }
     section.style.display = 'block';
 }
 
@@ -1201,19 +1344,19 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// ── AI AUTO-CORRECTION (Groq) ──────────────────────────────────
+// â”€â”€ AI AUTO-CORRECTION (Groq) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // Fallback local grading (used when API key is not set or API fails)
 function localGrade(ans, q) {
     let score = 0, feedback = '';
     if (q.type === 'mcq') {
         if (ans.answer.trim().toLowerCase() === q.ans.trim().toLowerCase()) {
-            score = 10; feedback = 'Correct Answer ✅';
+            score = 10; feedback = 'Correct Answer âœ…';
         } else {
             score = 0; feedback = `Incorrect. Correct was: ${q.ans}`;
         }
     } else if (q.type === 'code') {
-        if (ans.passed) { score = 10; feedback = 'Code compiled and passed test cases ✅'; }
+        if (ans.passed) { score = 10; feedback = 'Code compiled and passed test cases âœ…'; }
         else { score = 2; feedback = 'Code failed test cases or compilation error.'; }
     } else if (q.type === 'long') {
         const keywords = q.keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
@@ -1229,7 +1372,7 @@ function localGrade(ans, q) {
     return { score, feedback };
 }
 
-// ── Groq API caller (Fallback AI provider) ──────────────────────
+// â”€â”€ Groq API caller (Fallback AI provider) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function callGroqAPI(question, expectedAnswer, studentAnswer, questionType) {
     const prompt = `You are an exam grader evaluating a coding question.
 Question: ${question}
@@ -1312,7 +1455,7 @@ async function runAutoCorrect() {
     const exam = examDB[attempt.examID];
 
     if (!exam) {
-        toast('Exam data not found — cannot grade', true);
+        toast('Exam data not found â€” cannot grade', true);
         return;
     }
 
@@ -1331,7 +1474,7 @@ async function runAutoCorrect() {
     const maxScore = attempt.answers.length * 10;
     let apiCallsMade = 0;
 
-    // Sequential for loop — await actually pauses here (unlike forEach)
+    // Sequential for loop â€” await actually pauses here (unlike forEach)
     for (let i = 0; i < attempt.answers.length; i++) {
         const ans = attempt.answers[i];
         const q = exam.questions[i];
@@ -1340,15 +1483,15 @@ async function runAutoCorrect() {
         let result;
 
         if (q.type === 'mcq') {
-            // ── LOCAL: Exact match ──
+            // â”€â”€ LOCAL: Exact match â”€â”€
             if (ans.answer.trim().toLowerCase() === q.ans.trim().toLowerCase()) {
-                result = { score: 10, feedback: '📋 ✅ Correct answer.' };
+                result = { score: 10, feedback: 'ðŸ“‹ âœ… Correct answer.' };
             } else {
-                result = { score: 0, feedback: `📋 ❌ Incorrect. Correct answer: ${q.ans}` };
+                result = { score: 0, feedback: `ðŸ“‹ âŒ Incorrect. Correct answer: ${q.ans}` };
             }
 
         } else if (q.type === 'long') {
-            // ── LOCAL: Keyword check ──
+            // â”€â”€ LOCAL: Keyword check â”€â”€
             const keywords = q.keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
             let localFeedback = '';
             let localScore = 5;
@@ -1361,9 +1504,9 @@ async function runAutoCorrect() {
                     else missed.push(k);
                 });
                 localScore = Math.max(3, Math.round((matches / keywords.length) * 10));
-                localFeedback = `📋 Found ${matches}/${keywords.length} key concepts. Matched: [${matched.join(', ')}]${missed.length ? '. Missing: [' + missed.join(', ') + ']' : ''}`;
+                localFeedback = `ðŸ“‹ Found ${matches}/${keywords.length} key concepts. Matched: [${matched.join(', ')}]${missed.length ? '. Missing: [' + missed.join(', ') + ']' : ''}`;
             } else {
-                localFeedback = '📋 No keywords provided by admin — default score.';
+                localFeedback = 'ðŸ“‹ No keywords provided by admin â€” default score.';
             }
 
             // === PHASE 4: AI GENERATION CHECK ===
@@ -1386,7 +1529,7 @@ async function runAutoCorrect() {
             };
 
         } else if (q.type === 'code') {
-            // ── GROQ AI for code questions ──
+            // â”€â”€ GROQ AI for code questions â”€â”€
             const expectedOutput = q.out || 'No expected output';
 
             if (hasAI) {
@@ -1402,21 +1545,21 @@ async function runAutoCorrect() {
 
                 try {
                     result = await callGroqAPI(q.text, expectedOutput, ans.answer, 'code');
-                    result.feedback = '🤖 Groq: ' + result.feedback;
+                    result.feedback = 'ðŸ¤– Groq: ' + result.feedback;
                     apiCallsMade++;
                 } catch (err) {
                     console.warn(`Groq AI failed for Q${i + 1}, using local fallback.`, err.message);
                     if (ans.passed) {
-                        result = { score: 10, feedback: `<span style="color:#f59e0b;">⚠️ AI unavailable. Local Fallback: Test cases passed. ✅</span>` };
+                        result = { score: 10, feedback: `<span style="color:#f59e0b;">âš ï¸ AI unavailable. Local Fallback: Test cases passed. âœ…</span>` };
                     } else {
-                        result = { score: 2, feedback: `<span style="color:#ef4444;">⚠️ AI unavailable. Local Fallback: Test cases failed. Manual review recommended.</span>` };
+                        result = { score: 2, feedback: `<span style="color:#ef4444;">âš ï¸ AI unavailable. Local Fallback: Test cases failed. Manual review recommended.</span>` };
                     }
                 }
             } else {
                 if (ans.passed) {
-                    result = { score: 10, feedback: '📋 Code passed local test cases ✅' };
+                    result = { score: 10, feedback: 'ðŸ“‹ Code passed local test cases âœ…' };
                 } else {
-                    result = { score: 2, feedback: '📋 Code failed local tests. Use manual score to override.' };
+                    result = { score: 2, feedback: 'ðŸ“‹ Code failed local tests. Use manual score to override.' };
                 }
             }
 
@@ -1440,7 +1583,7 @@ async function runAutoCorrect() {
 
     btn.innerHTML = '<i class="fas fa-check"></i> Grading Complete';
     btn.disabled = false;
-    toast(apiCallsMade > 0 ? `Grading done — ${apiCallsMade} code Q graded by Groq AI ✅` : 'Grading complete ✅');
+    toast(apiCallsMade > 0 ? `Grading done â€” ${apiCallsMade} code Q graded by Groq AI âœ…` : 'Grading complete âœ…');
 }
 
 // --- STUDENT EXAM ---
@@ -1476,22 +1619,22 @@ async function loadMyExams() {
                 const startStr = new Date(e.startAt).toLocaleString();
                 const endStr = new Date(e.endAt).toLocaleString();
                 if (beforeWindow) {
-                    windowBadge = `<span style="font-size:11px; background:rgba(251,191,36,0.15); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); padding:3px 8px; border-radius:20px;">⏰ Opens ${startStr}</span>`;
+                    windowBadge = `<span style="font-size:11px; background:rgba(251,191,36,0.15); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); padding:3px 8px; border-radius:20px;">â° Opens ${startStr}</span>`;
                 } else if (afterWindow) {
-                    windowBadge = `<span style="font-size:11px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:3px 8px; border-radius:20px;">⛔ Closed ${endStr}</span>`;
+                    windowBadge = `<span style="font-size:11px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:3px 8px; border-radius:20px;">â›” Closed ${endStr}</span>`;
                 } else {
-                    windowBadge = `<span style="font-size:11px; background:rgba(0,255,157,0.1); color:#00FF9D; border:1px solid rgba(0,255,157,0.25); padding:3px 8px; border-radius:20px;">🟢 Open until ${endStr}</span>`;
+                    windowBadge = `<span style="font-size:11px; background:rgba(0,255,157,0.1); color:#00FF9D; border:1px solid rgba(0,255,157,0.25); padding:3px 8px; border-radius:20px;">ðŸŸ¢ Open until ${endStr}</span>`;
                 }
-                windowNote = `<div style="font-size:11px; color:#64748b; margin-top:3px;">${startStr} → ${endStr}</div>`;
+                windowNote = `<div style="font-size:11px; color:#64748b; margin-top:3px;">${startStr} â†’ ${endStr}</div>`;
             }
 
             if (isCompleted) {
-                list.innerHTML += `<div class="result-card" style="cursor:default; opacity:0.7;"><div><b>${escapeHtml(e.title)}</b><div style="font-size:12px;color:#64748b;">${e.questions.length} Questions • ${e.duration} mins</div></div><span class="badge" style="background:rgba(0,255,157,0.1); color:#00FF9D; border:1px solid rgba(0,255,157,0.25); font-size:12px;">✓ COMPLETED</span></div>`;
+                list.innerHTML += `<div class="result-card" style="cursor:default; opacity:0.7;"><div><b>${escapeHtml(e.title)}</b><div style="font-size:12px;color:#64748b;">${e.questions.length} Questions â€¢ ${e.duration} mins</div></div><span class="badge" style="background:rgba(0,255,157,0.1); color:#00FF9D; border:1px solid rgba(0,255,157,0.25); font-size:12px;">âœ“ COMPLETED</span></div>`;
             } else if (windowLocked) {
-                list.innerHTML += `<div class="result-card" style="cursor:default; opacity:0.75;"><div style="flex:1;"><b>${escapeHtml(e.title)}</b><div style="font-size:12px;color:#64748b;">${e.questions.length} Questions • ${e.duration} mins</div>${windowNote}</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">${windowBadge}</div></div>`;
+                list.innerHTML += `<div class="result-card" style="cursor:default; opacity:0.75;"><div style="flex:1;"><b>${escapeHtml(e.title)}</b><div style="font-size:12px;color:#64748b;">${e.questions.length} Questions â€¢ ${e.duration} mins</div>${windowNote}</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">${windowBadge}</div></div>`;
             } else {
-                const windowInfo = hasWindow ? `<div style="font-size:11px; color:#64748b; margin-top:3px;">📅 ${new Date(e.startAt).toLocaleString()} → ${new Date(e.endAt).toLocaleString()}</div>` : '';
-                list.innerHTML += `<div class="result-card" onclick="startExam('${eid}')"><div style="flex:1;"><b>${escapeHtml(e.title)}</b><div style="font-size:12px;color:#64748b;">${e.questions.length} Questions • ${e.duration} mins</div>${windowInfo}${windowBadge ? '<div style="margin-top:4px;">' + windowBadge + '</div>' : ''}</div><button style="width:auto; padding:8px 20px;">Start Exam</button></div>`;
+                const windowInfo = hasWindow ? `<div style="font-size:11px; color:#64748b; margin-top:3px;">ðŸ“… ${new Date(e.startAt).toLocaleString()} â†’ ${new Date(e.endAt).toLocaleString()}</div>` : '';
+                list.innerHTML += `<div class="result-card" onclick="startExam('${eid}')"><div style="flex:1;"><b>${escapeHtml(e.title)}</b><div style="font-size:12px;color:#64748b;">${e.questions.length} Questions â€¢ ${e.duration} mins</div>${windowInfo}${windowBadge ? '<div style="margin-top:4px;">' + windowBadge + '</div>' : ''}</div><button style="width:auto; padding:8px 20px;">Start Exam</button></div>`;
             }
         });
     } catch (e) { list.innerHTML = `<div style="color:#ef4444; padding:20px;">Error: ${e.message}</div>`; }
@@ -1657,10 +1800,184 @@ function confirmDeviceSelect() {
     if (previewStream) { previewStream.getTracks().forEach(t => t.stop()); previewStream = null; }
     document.getElementById('preview-video').srcObject = null;
     document.getElementById('device-selector').style.display = 'none';
-    launchExam(pendingExamId, selectedVideoId, selectedAudioId);
+
+    // === PRE-EXAM SECURITY SCAN ===
+    // Scan task list for banned processes before starting exam
+    showPreExamSecurityCheck(pendingExamId, selectedVideoId, selectedAudioId);
 }
 
-async function startExam(eid) { showDeviceSelector(eid); }
+// Pre-exam banned process check and kill dialog
+function showPreExamSecurityCheck(eid, videoId, audioId) {
+    // Show scanning modal
+    const modal = document.createElement('div');
+    modal.id = 'pre-exam-modal';
+    modal.style.cssText = `
+        position:fixed; inset:0; z-index:99999;
+        background:rgba(0,0,0,0.92);
+        display:flex; align-items:center; justify-content:center;
+        font-family:'DM Sans',sans-serif;
+    `;
+    modal.innerHTML = `
+        <div style="background:#0f172a; border:1px solid rgba(0,212,255,0.25); border-radius:18px;
+                    padding:36px; max-width:520px; width:90%; text-align:center; box-shadow:0 0 60px rgba(0,212,255,0.1);">
+            <div style="font-size:42px; margin-bottom:12px;">ðŸ”</div>
+            <div style="font-size:20px; font-weight:700; color:#f1f5f9; margin-bottom:8px;">Security System Check</div>
+            <div style="color:#64748b; font-size:14px; margin-bottom:24px;">Scanning for restricted software...</div>
+            <div id="pre-exam-spinner" style="color:#00D4FF; font-size:14px;">
+                <i class="fas fa-spinner fa-spin"></i> Scanning running processes...
+            </div>
+            <div id="pre-exam-result" style="display:none;"></div>
+        </div>`;
+    document.body.appendChild(modal);
+
+    // Scan processes using tasklist
+    const { exec } = require('child_process');
+    const BANNED = [
+        { key: 'chrome', name: 'Google Chrome', exe: 'chrome.exe' },
+        { key: 'firefox', name: 'Mozilla Firefox', exe: 'firefox.exe' },
+        { key: 'brave', name: 'Brave Browser', exe: 'brave.exe' },
+        { key: 'opera', name: 'Opera', exe: 'opera.exe' },
+        { key: 'discord', name: 'Discord', exe: 'discord.exe' },
+        { key: 'obs', name: 'OBS Studio', exe: 'obs.exe' },
+        { key: 'obs64', name: 'OBS Studio (64-bit)', exe: 'obs64.exe' },
+        { key: 'zoom', name: 'Zoom', exe: 'zoom.exe' },
+        { key: 'skype', name: 'Skype', exe: 'skype.exe' },
+        { key: 'telegram', name: 'Telegram', exe: 'telegram.exe' },
+        { key: 'slack', name: 'Slack', exe: 'slack.exe' },
+        { key: 'whatsapp', name: 'WhatsApp', exe: 'whatsapp.exe' },
+        { key: 'teamviewer', name: 'TeamViewer', exe: 'teamviewer.exe' },
+        { key: 'anydesk', name: 'AnyDesk', exe: 'anydesk.exe' },
+        { key: 'snippingtool', name: 'Snipping Tool', exe: 'snippingtool.exe' },
+        { key: 'screensketch', name: 'Screen Sketch', exe: 'screensketch.exe' },
+        { key: 'sharex', name: 'ShareX', exe: 'sharex.exe' },
+        { key: 'lightshot', name: 'Lightshot', exe: 'lightshot.exe' },
+        { key: 'vmware', name: 'VMware', exe: 'vmware.exe' },
+        { key: 'virtualbox', name: 'VirtualBox', exe: 'virtualboxvm.exe' },
+        { key: 'parsec', name: 'Parsec', exe: 'parsec.exe' },
+        { key: 'rustdesk', name: 'RustDesk', exe: 'rustdesk.exe' }
+    ];
+
+    const cmd = process.platform === 'win32' ? 'tasklist /FO CSV /NH' : 'ps aux';
+    const detectRestrictedApps = () => new Promise(resolve => {
+        exec(cmd, { timeout: 10000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+            if (err || !stdout) {
+                resolve([]);
+                return;
+            }
+            const running = stdout.toLowerCase();
+            resolve(BANNED.filter(b => running.includes(b.key.toLowerCase())));
+        });
+    });
+
+    detectRestrictedApps().then((detected) => {
+        const resultEl = document.getElementById('pre-exam-result');
+        const spinnerEl = document.getElementById('pre-exam-spinner');
+
+        spinnerEl.style.display = 'none';
+        resultEl.style.display = 'block';
+
+        if (detected.length === 0) {
+            // All clear â€” start exam directly
+            resultEl.innerHTML = `
+                <div style="color:#00FF9D; font-size:24px; margin-bottom:12px;">âœ…</div>
+                <div style="color:#00FF9D; font-weight:700; font-size:16px; margin-bottom:8px;">All Clear!</div>
+                <div style="color:#94a3b8; font-size:13px; margin-bottom:24px;">No restricted software detected. Starting exam...</div>`;
+            setTimeout(() => {
+                modal.remove();
+                launchExam(eid, videoId, audioId);
+            }, 1200);
+        } else {
+            // Found restricted apps â€” show list and ask to terminate
+            const listHtml = detected.map(b =>
+                `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(239,68,68,0.1);
+                 border:1px solid rgba(239,68,68,0.25);border-radius:8px;margin-bottom:6px;">
+                    <span style="color:#ef4444;font-size:16px;">â›”</span>
+                    <span style="color:#f1f5f9;font-size:14px;font-weight:600;">${b.name}</span>
+                 </div>`
+            ).join('');
+
+            resultEl.innerHTML = `
+                <div style="color:#ef4444; font-size:24px; margin-bottom:10px;">âš ï¸</div>
+                <div style="color:#f87171; font-weight:700; font-size:16px; margin-bottom:6px;">
+                    ${detected.length} Restricted App${detected.length > 1 ? 's' : ''} Detected
+                </div>
+                <div style="color:#94a3b8; font-size:13px; margin-bottom:16px;">
+                    The following applications must be closed before starting the exam.
+                    Click <b style="color:#00D4FF;">Close All & Start Exam</b> and the system will automatically terminate them.
+                </div>
+                <div style="text-align:left; margin-bottom:20px; max-height:200px; overflow-y:auto;">${listHtml}</div>
+                <div style="display:flex; gap:12px; justify-content:center;">
+                    <button id="btn-kill-start" style="
+                        background:linear-gradient(135deg,#00D4FF,#6366f1); color:#000; font-weight:700;
+                        border:none; padding:12px 24px; border-radius:10px; cursor:pointer;
+                        font-size:14px; font-family:'DM Sans',sans-serif; width:auto;">
+                        ðŸ”« Close All & Start Exam
+                    </button>
+                    <button id="btn-cancel-exam" style="
+                        background:rgba(255,255,255,0.07); color:#94a3b8;
+                        border:1px solid rgba(255,255,255,0.1); padding:12px 20px;
+                        border-radius:10px; cursor:pointer; font-size:14px;
+                        font-family:'DM Sans',sans-serif; width:auto;">
+                        Cancel
+                    </button>
+                </div>`;
+
+            document.getElementById('btn-kill-start').onclick = async () => {
+                // Show killing status
+                resultEl.innerHTML = `
+                    <div style="color:#f59e0b; font-size:24px; margin-bottom:12px;">ðŸ”«</div>
+                    <div style="color:#f59e0b; font-weight:700; margin-bottom:8px;">Terminating restricted apps...</div>
+                    <div style="color:#64748b; font-size:13px;">${detected.map(b => b.name).join(', ')}</div>`;
+
+                // Kill and verify that nothing restricted is still running
+                const killResponse = await ipcRenderer.invoke('kill-banned-processes-and-wait').catch(() => null);
+                let stillRunning = [];
+                if (killResponse && Array.isArray(killResponse.remaining)) {
+                    stillRunning = BANNED.filter(b =>
+                        killResponse.remaining.some(procName => procName.toLowerCase().includes(b.key.toLowerCase()))
+                    );
+                }
+                if (stillRunning.length === 0) {
+                    stillRunning = await detectRestrictedApps();
+                }
+
+                if (stillRunning.length > 0) {
+                    resultEl.innerHTML = `
+                        <div style="color:#ef4444; font-size:24px; margin-bottom:10px;">!</div>
+                        <div style="color:#f87171; font-weight:700; margin-bottom:8px;">Some restricted apps are still running</div>
+                        <div style="color:#94a3b8; font-size:13px; margin-bottom:14px;">Close them manually (or run SecurePro as Administrator) and try again.</div>
+                        <div style="display:flex; gap:10px; justify-content:center;">
+                            <button id="btn-retry-kill" style="background:linear-gradient(135deg,#00D4FF,#6366f1); color:#000; font-weight:700; border:none; padding:10px 18px; border-radius:8px; cursor:pointer; font-size:13px; width:auto;">Retry</button>
+                            <button id="btn-close-manual" style="background:rgba(255,255,255,0.07); color:#94a3b8; border:1px solid rgba(255,255,255,0.1); padding:10px 18px; border-radius:8px; cursor:pointer; font-size:13px; width:auto;">Cancel</button>
+                        </div>`;
+                    document.getElementById('btn-retry-kill').onclick = () => {
+                        modal.remove();
+                        showPreExamSecurityCheck(eid, videoId, audioId);
+                    };
+                    document.getElementById('btn-close-manual').onclick = () => {
+                        modal.remove();
+                    };
+                    return;
+                }
+
+                resultEl.innerHTML = `
+                    <div style="color:#00FF9D; font-size:24px; margin-bottom:12px;">OK</div>
+                    <div style="color:#00FF9D; font-weight:700; margin-bottom:8px;">Restricted apps closed</div>
+                    <div style="color:#94a3b8; font-size:13px;">Starting exam...</div>`;
+                setTimeout(() => {
+                    modal.remove();
+                    launchExam(eid, videoId, audioId);
+                }, 900);
+            };
+
+            document.getElementById('btn-cancel-exam').onclick = () => {
+                modal.remove();
+            };
+        }
+    });
+}
+
+
 
 async function launchExam(eid, videoDeviceId, audioDeviceId) {
     activeExamID = eid;
@@ -1668,6 +1985,8 @@ async function launchExam(eid, videoDeviceId, audioDeviceId) {
     lastVioTime = {};
     questionTimers = {};
     activeQuestionIndex = null;
+    window._highRiskWarned = false;
+    window._lastHighRiskToast = null;
     const e = examDB[eid];
     document.getElementById('student-screen').classList.add('hidden');
     document.getElementById('exam-interface').style.display = 'flex';
@@ -1697,8 +2016,8 @@ async function launchExam(eid, videoDeviceId, audioDeviceId) {
                 </div>
                 <textarea id="code_${i}" class="code-editor" spellcheck="false" data-lang="${q.lang || 'javascript'}">${boilerplate}</textarea>
                 <div style="display:flex; gap:8px; margin-top:10px; align-items:center;">
-                    <button onclick="runCode(${i}, '${q.lang || 'javascript'}')" class="secondary" style="width:auto; font-size:12px; padding:6px 14px;">▶ Run</button>
-                    <button onclick="checkCode(${i}, '${q.lang || 'javascript'}', '${(q.out || '').replace(/'/g, "\\\\'").replace(/\n/g, '\\\\n')}', '${(q.inp || '').replace(/'/g, "\\\\'").replace(/\n/g, '\\\\n')}')" style="width:auto; font-size:12px; padding:6px 14px; background:var(--success); color:var(--bg-base);">✔ Test</button>
+                    <button onclick="runCode(${i}, '${q.lang || 'javascript'}')" class="secondary" style="width:auto; font-size:12px; padding:6px 14px;">â–¶ Run</button>
+                    <button onclick="checkCode(${i}, '${q.lang || 'javascript'}', '${(q.out || '').replace(/'/g, "\\\\'").replace(/\n/g, '\\\\n')}', '${(q.inp || '').replace(/'/g, "\\\\'").replace(/\n/g, '\\\\n')}')" style="width:auto; font-size:12px; padding:6px 14px; background:var(--success); color:var(--bg-base);">âœ” Test</button>
                     <span id="test-result_${i}" style="font-size:12px; margin-left:8px;"></span>
                 </div>
                 <div id="console_${i}" class="console-output">// Output will appear here</div>
@@ -1717,7 +2036,7 @@ async function launchExam(eid, videoDeviceId, audioDeviceId) {
         });
     });
 
-    // Feature 3: Question time tracking — click listeners
+    // Feature 3: Question time tracking â€” click listeners
     document.querySelectorAll('.q-block').forEach(div => {
         div.addEventListener('click', () => {
             const idx = parseInt(div.getAttribute('data-idx'));
@@ -1752,6 +2071,17 @@ async function launchExam(eid, videoDeviceId, audioDeviceId) {
     }
 
     stopAllCameras();
+    if (noiseRecorder && noiseRecorder.state === 'recording') {
+        try { noiseRecorder.stop(); } catch (_) { }
+    }
+    analyser = null;
+    dataArray = null;
+    audioTimeDataArray = null;
+    resetAudioMonitoringState();
+    if (audioContext) {
+        audioContext.close().catch(() => { });
+        audioContext = null;
+    }
 
     try {
         window.AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -1771,6 +2101,7 @@ async function launchExam(eid, videoDeviceId, audioDeviceId) {
             videoEl.play().then(() => console.log('Exam video playing')).catch(err => console.error('Play failed:', err));
         };
         setupAudio(currentStream);
+
         // Feature 1: Copy-paste blocking
         document.addEventListener('keydown', blockExamShortcuts);
         document.addEventListener('contextmenu', blockContextMenu);
@@ -1780,12 +2111,18 @@ async function launchExam(eid, videoDeviceId, audioDeviceId) {
         document.addEventListener('visibilitychange', handleTabSwitch);
         window.addEventListener('blur', handleTabSwitch);
 
+        // Block trackpad pinch-zoom, ctrl+scroll, and horizontal swipe navigation
+        window.addEventListener('wheel', blockGestureWheel, { passive: false });
+        window.addEventListener('gesturestart', blockNativeGesture, { passive: false });
+        window.addEventListener('gesturechange', blockNativeGesture, { passive: false });
+        window.addEventListener('gestureend', blockNativeGesture, { passive: false });
+
         // Phase 1/2/3 Initialization
         ipcRenderer.send('start-process-monitor');
-        ipcRenderer.send('show-blackout'); // 🖤 Black out all screens except SecurePro
+        ipcRenderer.send('show-blackout'); // ðŸ–¤ Black out + global shortcut blocking
         checkNetworkIP();
-        networkCheckInterval = setInterval(checkNetworkIP, 300000); // 5 min
-        faceReverifyInterval = setInterval(periodicFaceReverify, 600000); // 10 min
+        networkCheckInterval = setInterval(checkNetworkIP, 300000);
+        faceReverifyInterval = setInterval(periodicFaceReverify, 600000);
         document.addEventListener('keydown', trackTypingSpeed);
         document.addEventListener('mouseleave', trackCursorLeave);
         document.addEventListener('mousemove', trackActivity);
@@ -1884,8 +2221,19 @@ async function submitPaper() {
     if (inactivityInterval) clearInterval(inactivityInterval);
 
     ipcRenderer.send('stop-process-monitor');
-    ipcRenderer.send('hide-blackout'); // ✅ Remove black overlay — exam over
+    ipcRenderer.send('hide-blackout'); // âœ… Remove black overlay â€” exam over
     stopAllCameras();
+    if (noiseRecorder && noiseRecorder.state === 'recording') {
+        try { noiseRecorder.stop(); } catch (_) { }
+    }
+    analyser = null;
+    dataArray = null;
+    audioTimeDataArray = null;
+    resetAudioMonitoringState();
+    if (audioContext) {
+        audioContext.close().catch(() => { });
+        audioContext = null;
+    }
 
     document.removeEventListener('keydown', blockExamShortcuts);
     document.removeEventListener('contextmenu', blockContextMenu);
@@ -1894,6 +2242,10 @@ async function submitPaper() {
     document.removeEventListener('paste', blockClipboardEvents);
     document.removeEventListener('visibilitychange', handleTabSwitch);
     window.removeEventListener('blur', handleTabSwitch);
+    window.removeEventListener('wheel', blockGestureWheel);
+    window.removeEventListener('gesturestart', blockNativeGesture);
+    window.removeEventListener('gesturechange', blockNativeGesture);
+    window.removeEventListener('gestureend', blockNativeGesture);
     document.removeEventListener('keydown', trackTypingSpeed);
     document.removeEventListener('mouseleave', trackCursorLeave);
     document.removeEventListener('mousemove', trackActivity);
@@ -1929,13 +2281,32 @@ async function submitPaper() {
     const attemptId = `${activeExamID}_${Date.now()}`;
     const uploadedViolations = [];
     for (const v of (violationLog || [])) {
-        const vc = { type: v.type, timestamp: v.timestamp, timeIntoExam: v.timeIntoExam };
+        const vc = { type: v.type, timestamp: v.timestamp, timeIntoExam: v.timeIntoExam, proofType: v.proofType || 'camera' };
+
+        // Upload screenshot proof (webcam photo OR screen screenshot)
         if (v.screenshotBase64) {
-            try { const key = `violations/${currentStudent}/${attemptId}/${v.timestamp}.jpg`; await s3UploadBase64(key, v.screenshotBase64); vc.screenshotKey = key; }
-            catch (e) { console.warn('Screenshot upload failed:', e.message); vc.screenshotKey = null; }
+            try {
+                const isScreen = v.proofType === 'screen';
+                const ext = isScreen ? '.png' : '.jpg';
+                const mime = isScreen ? 'image/png' : 'image/jpeg';
+                const key = `violations/${currentStudent}/${attemptId}/${v.timestamp}${ext}`;
+                await s3UploadBase64(key, v.screenshotBase64, mime);
+                vc.screenshotKey = key;
+            } catch (e) { console.warn('Screenshot upload failed:', e.message); vc.screenshotKey = null; }
         }
+
+        // Upload audio proof (voice clips)
+        if (v.audioBase64) {
+            try {
+                const key = `violations/${currentStudent}/${attemptId}/${v.timestamp}.webm`;
+                await s3UploadBase64(key, v.audioBase64, 'audio/webm');
+                vc.audioKey = key;
+            } catch (e) { console.warn('Audio upload failed:', e.message); vc.audioKey = null; }
+        }
+
         uploadedViolations.push(vc);
     }
+
     const attempt = { attemptId, examID: activeExamID, examTitle: document.getElementById('paper-title').innerText, answers, violations: uploadedViolations, cheatingScore: calculateCheatingScore(violationLog || []), submittedAt: Date.now(), fastAnswerFlags };
     try {
         await dbPutResult(currentStudent, attempt);
@@ -1953,6 +2324,113 @@ async function submitPaper() {
 }
 
 // --- AUDIO PROCESSING ---
+function resetAudioMonitoringState() {
+    audioFrameLastTs = 0;
+    voiceActiveMs = 0;
+    lastVoiceViolationTs = 0;
+    roomAudioBaseline = { calibrated: false, rms: 0.012, speechRatio: 0.25, zcr: 0.08 };
+    roomAudioCalibration = {
+        active: false,
+        endsAt: 0,
+        rmsSamples: [],
+        speechRatioSamples: [],
+        zcrSamples: []
+    };
+}
+
+function beginRoomAudioCalibration() {
+    resetAudioMonitoringState();
+    roomAudioCalibration.active = true;
+    roomAudioCalibration.endsAt = Date.now() + AUDIO_CALIBRATION_MS;
+    toast('Calibrating room audio for 4 seconds. Please stay quiet.');
+}
+
+function finishRoomAudioCalibration() {
+    const rmsSamples = roomAudioCalibration.rmsSamples;
+    const speechSamples = roomAudioCalibration.speechRatioSamples;
+    const zcrSamples = roomAudioCalibration.zcrSamples;
+
+    const mean = arr => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+    const rmsMean = mean(rmsSamples);
+    const speechMean = mean(speechSamples);
+    const zcrMean = mean(zcrSamples);
+
+    roomAudioBaseline = {
+        calibrated: true,
+        rms: Math.max(0.008, rmsMean || 0.012),
+        speechRatio: Math.max(0.12, speechMean || 0.22),
+        zcr: Math.max(0.03, zcrMean || 0.08)
+    };
+
+    roomAudioCalibration.active = false;
+    roomAudioCalibration.endsAt = 0;
+    roomAudioCalibration.rmsSamples = [];
+    roomAudioCalibration.speechRatioSamples = [];
+    roomAudioCalibration.zcrSamples = [];
+
+    toast('Room audio calibrated. Voice-only monitoring is active.');
+}
+
+function getAudioFeatures() {
+    if (!analyser || !dataArray || !audioTimeDataArray) return null;
+
+    analyser.getByteFrequencyData(dataArray);
+    analyser.getByteTimeDomainData(audioTimeDataArray);
+
+    let totalFreq = 0;
+    let totalEnergy = 0;
+    let speechEnergy = 0;
+    let highEnergy = 0;
+
+    const sampleRate = (audioContext && audioContext.sampleRate) ? audioContext.sampleRate : 48000;
+    const nyquist = sampleRate / 2;
+    const binHz = nyquist / dataArray.length;
+
+    for (let i = 0; i < dataArray.length; i++) {
+        const v = dataArray[i];
+        totalFreq += v;
+        const norm = v / 255;
+        totalEnergy += norm;
+        const hz = i * binHz;
+        if (hz >= 300 && hz <= 3400) speechEnergy += norm;
+        if (hz >= 4000) highEnergy += norm;
+    }
+
+    let sumSquares = 0;
+    let signChanges = 0;
+    let prev = (audioTimeDataArray[0] - 128) / 128;
+    for (let i = 0; i < audioTimeDataArray.length; i++) {
+        const centered = (audioTimeDataArray[i] - 128) / 128;
+        sumSquares += centered * centered;
+        if ((centered >= 0) !== (prev >= 0)) signChanges++;
+        prev = centered;
+    }
+
+    const avg = totalFreq / dataArray.length;
+    const rms = Math.sqrt(sumSquares / audioTimeDataArray.length);
+    const zcr = signChanges / audioTimeDataArray.length;
+    const speechRatio = speechEnergy / Math.max(totalEnergy, 1e-6);
+    const highRatio = highEnergy / Math.max(totalEnergy, 1e-6);
+
+    return { avg, rms, zcr, speechRatio, highRatio };
+}
+
+function isLikelyVoice(features) {
+    if (!features) return false;
+    const rmsGate = Math.max(MIN_VOICE_RMS, roomAudioBaseline.rms * 2.2);
+    const speechGate = Math.max(0.24, roomAudioBaseline.speechRatio + 0.08);
+    const zcrMin = Math.max(0.02, roomAudioBaseline.zcr * 0.6);
+    const zcrMax = 0.22;
+
+    return (
+        features.rms >= rmsGate &&
+        features.speechRatio >= speechGate &&
+        features.highRatio <= 0.52 &&
+        features.zcr >= zcrMin &&
+        features.zcr <= zcrMax
+    );
+}
+
 function setupAudio(stream) {
     if (!audioContext) return;
     if (audioContext.state === 'suspended') {
@@ -1961,23 +2439,30 @@ function setupAudio(stream) {
     analyser = audioContext.createAnalyser();
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
-    analyser.fftSize = 256;
+    analyser.fftSize = 1024;
     dataArray = new Uint8Array(analyser.frequencyBinCount);
+    audioTimeDataArray = new Uint8Array(analyser.fftSize);
+    beginRoomAudioCalibration();
     monitorAudio();
 }
 
 function monitorAudio() {
     if (!analyser) return;
     requestAnimationFrame(monitorAudio);
-    analyser.getByteFrequencyData(dataArray);
-    let sum = 0; for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-    let avg = sum / dataArray.length;
+
+    const features = getAudioFeatures();
+    if (!features) return;
+
+    const now = Date.now();
+    if (!audioFrameLastTs) audioFrameLastTs = now;
+    const deltaMs = Math.max(8, now - audioFrameLastTs);
+    audioFrameLastTs = now;
 
     // Original bar (hidden, kept for compatibility)
     const bar = document.getElementById('audio-level');
     if (bar) {
-        bar.style.width = avg + '%';
-        if (avg > NOISE_THRESHOLD) bar.classList.add('loud');
+        bar.style.width = features.avg + '%';
+        if (features.avg > NOISE_THRESHOLD) bar.classList.add('loud');
         else bar.classList.remove('loud');
     }
 
@@ -1987,13 +2472,32 @@ function monitorAudio() {
         const freq = dataArray[Math.floor((i / bars.length) * dataArray.length / 3)] || 0;
         const h = Math.max(3, (freq / 255) * 26);
         b.style.height = h + 'px';
-        if (avg > NOISE_THRESHOLD) {
-            b.classList.add('loud');
-        } else {
-            b.classList.remove('loud');
-        }
+        if (features.avg > NOISE_THRESHOLD) b.classList.add('loud');
+        else b.classList.remove('loud');
     });
-    if (avg > NOISE_THRESHOLD) showVio('NOISE_DETECTED');
+
+    if (roomAudioCalibration.active) {
+        roomAudioCalibration.rmsSamples.push(features.rms);
+        roomAudioCalibration.speechRatioSamples.push(features.speechRatio);
+        roomAudioCalibration.zcrSamples.push(features.zcr);
+        if (now >= roomAudioCalibration.endsAt) finishRoomAudioCalibration();
+        return;
+    }
+    if (!roomAudioBaseline.calibrated) return;
+
+    const likelyVoice = isLikelyVoice(features);
+    if (likelyVoice) voiceActiveMs += deltaMs;
+    else voiceActiveMs = Math.max(0, voiceActiveMs - (deltaMs * 1.7));
+
+    if (
+        likelyVoice &&
+        voiceActiveMs >= VOICE_MIN_ACTIVE_MS &&
+        (now - lastVoiceViolationTs) >= VOICE_MIN_GAP_MS
+    ) {
+        lastVoiceViolationTs = now;
+        voiceActiveMs = 0;
+        showVio('NOISE_DETECTED');
+    }
 }
 
 // --- PROCTORING ---
@@ -2006,34 +2510,68 @@ function checkFrame() {
     const b64 = c.toDataURL('image/jpeg');
     const b = getBuffer(b64);
     if (b.length < 100) return;
-    const bannedObjects = ['Phone', 'Book', 'Paper', 'Text', 'Computer', 'Monitor', 'Laptop'];
-    rekognition.detectLabels({ Image: { Bytes: b }, MinConfidence: 75 }, (e, d) => {
-        if (!e && d.Labels.some(l => bannedObjects.includes(l.Name))) {
-            const detected = d.Labels.find(l => bannedObjects.includes(l.Name)).Name;
-            showVio(detected.toUpperCase() + '_DETECTED');
+
+    // Phone labels that Rekognition may return
+    const phoneLabels = [
+        'Phone', 'Mobile Phone', 'Cell Phone', 'Smartphone', 'Telephone',
+        'Mobile Device', 'Iphone', 'Android Phone'
+    ];
+    // Only detect the requested non-phone objects
+    const objectLabels = [
+        'Book', 'Textbook', 'Laptop', 'Laptop Computer', 'Notebook Computer',
+        'Electronics', 'Electronic Device',
+        'Tablet', 'Tablet Computer', 'iPad'
+    ];
+
+    rekognition.detectLabels({ Image: { Bytes: b }, MinConfidence: 78 }, (e, d) => {
+        if (e || !d || !d.Labels) return;
+        const labelNames = d.Labels.map(l => l.Name);
+
+        // Check for phone first (higher priority)
+        const isPhone = phoneLabels.some(pl =>
+            labelNames.some(ln => ln.toLowerCase().includes(pl.toLowerCase()))
+        );
+        if (isPhone) {
+            showVio('PHONE_DETECTED');
+            return;
+        }
+
+        // Check for other banned objects
+        const foundObj = objectLabels.find(ol =>
+            labelNames.some(ln => ln.toLowerCase().includes(ol.toLowerCase()))
+        );
+        if (foundObj) {
+            showVio('OBJECT_DETECTED');
         }
     });
-    rekognition.detectFaces({ Image: { Bytes: b }, Attributes: ['ALL'] }, (e, d) => {
-        if (!e) {
-            if (d.FaceDetails.length === 0) showVio('NO_FACE');
-            else if (d.FaceDetails.length > 1) showVio('MULTIPLE_FACES');
-            else {
-                const face = d.FaceDetails[0];
-                const p = face.Pose;
-                if (Math.abs(p.Yaw) > 25 || Math.abs(p.Pitch) > 15) showVio('LOOKING_AWAY');
-                else document.getElementById('v-overlay').style.display = 'none';
 
-                // Feature 5: Lip movement detection
-                const mouth = face.MouthOpen;
-                if (mouth && mouth.Value === true && mouth.Confidence > 85) {
-                    window._mouthOpenCount = (window._mouthOpenCount || 0) + 1;
-                    if (window._mouthOpenCount >= 3) { showVio('LIP_MOVEMENT'); window._mouthOpenCount = 0; }
-                } else {
-                    window._mouthOpenCount = Math.max(0, (window._mouthOpenCount || 0) - 1);
+    if (!isTestBypassUser()) {
+        rekognition.detectFaces({ Image: { Bytes: b }, Attributes: ['ALL'] }, (e, d) => {
+            if (!e) {
+                if (d.FaceDetails.length === 0) showVio('NO_FACE');
+                else if (d.FaceDetails.length > 1) showVio('MULTIPLE_FACES');
+                else {
+                    const face = d.FaceDetails[0];
+                    const p = face.Pose;
+                    // 30Â° threshold for looking away (yaw = left/right, pitch = up/down)
+                    if (Math.abs(p.Yaw) > 30 || Math.abs(p.Pitch) > 30) {
+                        showVio('LOOKING_AWAY');
+                    } else {
+                        document.getElementById('v-overlay').style.display = 'none';
+                    }
+
+                    // Lip movement detection
+                    const mouth = face.MouthOpen;
+                    if (mouth && mouth.Value === true && mouth.Confidence > 85) {
+                        window._mouthOpenCount = (window._mouthOpenCount || 0) + 1;
+                        if (window._mouthOpenCount >= 3) { showVio('LIP_MOVEMENT'); window._mouthOpenCount = 0; }
+                    } else {
+                        window._mouthOpenCount = Math.max(0, (window._mouthOpenCount || 0) - 1);
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 }
 
 let vioTimeout = null;
@@ -2041,7 +2579,8 @@ function showVio(m) {
     if (isDisqualified) return;
     const vOverlay = document.getElementById('v-overlay');
     vOverlay.style.display = 'flex';
-    document.getElementById('v-msg').innerText = m.replace(/_/g, ' ');
+    const displayMsg = m === 'NOISE_DETECTED' ? 'VOICE_DETECTED' : m;
+    document.getElementById('v-msg').innerText = displayMsg.replace(/_/g, ' ');
 
     if (vioTimeout) clearTimeout(vioTimeout);
     vioTimeout = setTimeout(() => {
@@ -2054,43 +2593,71 @@ function showVio(m) {
         camWrap.className = 'exam-cam-wrap violation';
         setTimeout(() => { if (camWrap) camWrap.className = 'exam-cam-wrap monitoring'; }, 5000);
     }
+
     const now = Date.now();
     const typeKey = m.replace(/ /g, '_');
     if (lastVioTime[typeKey] && (now - lastVioTime[typeKey]) < 15000) return; // Cooldown
     lastVioTime[typeKey] = now;
-    const screenshot = violationLog.length < 20 ? captureViolationSnapshot() : null;
-    violationLog.push({ type: typeKey, timestamp: now, timeIntoExam: Math.floor((now - (examStartTime || now)) / 1000), screenshotBase64: screenshot });
 
-    // === PHASE 3: AUTO-DISQUALIFY THRESHOLD ===
+    if (violationLog.length >= 20) {
+        // Still record but no more proof captures after 20
+        violationLog.push({ type: typeKey, timestamp: now, timeIntoExam: Math.floor((now - (examStartTime || now)) / 1000), proofType: 'none' });
+    } else {
+        // Create violation entry first (proof filled async below)
+        const vioEntry = {
+            type: typeKey,
+            timestamp: now,
+            timeIntoExam: Math.floor((now - (examStartTime || now)) / 1000),
+            screenshotBase64: null,
+            audioBase64: null,
+            proofType: 'none'
+        };
+        violationLog.push(vioEntry);
+
+        if (typeKey === 'TAB_SWITCH') {
+            // ðŸ“º Capture the SCREEN (not webcam) as proof of what they switched to
+            captureScreenScreenshot().then(ss => {
+                if (ss) { vioEntry.screenshotBase64 = ss; vioEntry.proofType = 'screen'; }
+            }).catch(() => { });
+
+        } else if (typeKey === 'NOISE_DETECTED') {
+            // ðŸŽ™ Record 6s of voice audio as proof
+            recordNoiseAudio(6000).then(audio => {
+                if (audio) { vioEntry.audioBase64 = audio; vioEntry.proofType = 'audio'; }
+            }).catch(() => { });
+
+        } else {
+            // ðŸ“· Default: webcam snapshot (face-based violations)
+            vioEntry.screenshotBase64 = captureViolationSnapshot();
+            vioEntry.proofType = 'camera';
+        }
+    }
+
+    // === HIGH CHEATING SCORE WARNING (no auto-submit â€” admin sees everything at end) ===
     const currentScore = calculateCheatingScore(violationLog);
-    if (currentScore > 65) {
-        isDisqualified = true;
-        document.getElementById('v-overlay').style.background = 'rgba(255, 0, 0, 0.95)';
-        document.getElementById('v-overlay').style.top = '0';
-        document.getElementById('v-overlay').style.right = '0';
-        document.getElementById('v-overlay').style.left = '0';
-        document.getElementById('v-overlay').style.bottom = '0';
-        document.getElementById('v-overlay').style.width = '100vw';
-        document.getElementById('v-overlay').style.height = '100vh';
-        document.getElementById('v-overlay').style.borderRadius = '0';
-        document.getElementById('v-overlay').style.justifyContent = 'center';
-
-        document.getElementById('v-msg').innerText = 'EXAM DISQUALIFIED\nCheating score exceeded limit.';
-        document.getElementById('v-msg').style.color = 'white';
-        document.getElementById('v-msg').style.fontSize = '30px';
-        clearInterval(proctorInt);
-        setTimeout(() => testSubmitDisqualified(), 3000);
+    if (currentScore > 65 && !window._highRiskWarned) {
+        window._highRiskWarned = true;
+        // Show a non-blocking warning â€” student can still continue and submit
+        toast(`âš ï¸ High cheating score detected (${currentScore}/100). All violations are being recorded for admin review.`, true);
+        // Flash the overlay briefly but don't lock the exam
+        const vOverlay = document.getElementById('v-overlay');
+        if (vOverlay) {
+            vOverlay.style.display = 'flex';
+            document.getElementById('v-msg').innerText = `âš ï¸ WARNING: High Risk Score (${currentScore}/100)\nAll violations recorded. Continue your exam.`;
+            setTimeout(() => { vOverlay.style.display = 'none'; }, 5000);
+        }
+    } else if (currentScore > 65) {
+        // Subsequent high-score violations â€” just toast, no overlay spam
+        if (!window._lastHighRiskToast || Date.now() - window._lastHighRiskToast > 60000) {
+            window._lastHighRiskToast = Date.now();
+            toast(`ðŸš¨ Cheating score: ${currentScore}/100 â€” Recorded for admin`, true);
+        }
     }
 }
 
-function testSubmitDisqualified() {
-    toast('Disqualified! Auto-submitting exam...', true);
-    submitPaper();
-}
-
-// === PHASE 3: QUESTION TIME LIMITS ===
+// === QUESTION TIME LIMITS ===
 function checkQuestionTimeouts() {
-    if (!activeExamID || isDisqualified) return;
+    if (!activeExamID) return;
     const maxTime = 300; // e.g., 5 mins max per question (300 sec)
     for (const [idx, timer] of Object.entries(questionTimers)) {
         let total = timer.totalSeconds;
@@ -2103,7 +2670,7 @@ function checkQuestionTimeouts() {
                 block.classList.add('locked');
                 block.querySelectorAll('input, textarea, button').forEach(el => el.disabled = true);
                 block.style.opacity = '0.6';
-                block.querySelector('.q-number-chip').innerText += ' ⏳ LOCKED';
+                block.querySelector('.q-number-chip').innerText += ' â³ LOCKED';
                 block.querySelector('.q-number-chip').style.color = '#ef4444';
             }
         }
@@ -2114,15 +2681,88 @@ function getBuffer(b64) {
     return Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ""), 'base64');
 }
 
-// ── CLEANUP ON APP CLOSE ──────────────────────────────────────────────────
-// Ensure blackout windows are always destroyed if SecurePro is closed
-// (user closes window, crashes, or process is killed from Task Manager)
+// â”€â”€ AUTO-PROVISION TEST STUDENT s2 + TEST EXAM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ensures the bypass test account always exists with an exam assigned so devs
+// / admins can quickly test features without manual setup.
+async function provisionTestStudent() {
+    try {
+        // 1. Ensure student s2 exists
+        const existing = await dbGetStudent(TEST_BYPASS_ID);
+        if (!existing) {
+            await dbPutStudent(TEST_BYPASS_ID, {
+                name: 'Test Student',
+                email: 'test@securepro.local',
+                mobile: '0000000000',
+                photoKey: 'photos/s2_placeholder.jpg' // bypassed by TEST_BYPASS_ID
+            });
+            console.log('[TEST] Created test student s2');
+        }
+
+        // 2. Ensure test exam exists
+        await dbGetAllExams();
+        const TEST_EXAM_TITLE = 'ðŸ§ª SecurePro Feature Test Exam';
+        const existingTestExam = Object.values(examDB).find(e => e.title === TEST_EXAM_TITLE);
+        let testExamId;
+
+        if (!existingTestExam) {
+            testExamId = 'exam_test_s2_permanent';
+            await dbPutExam(testExamId, {
+                title: TEST_EXAM_TITLE,
+                duration: '30',
+                severity: '3000',
+                questions: [
+                    {
+                        type: 'mcq',
+                        text: 'What is 1 + 1?',
+                        opts: 'A: 1, B: 2, C: 3, D: 4',
+                        ans: 'B',
+                        keywords: '',
+                        lang: '',
+                        inp: '',
+                        out: ''
+                    },
+                    {
+                        type: 'long',
+                        text: 'Briefly describe what you can see in this room.',
+                        opts: '',
+                        ans: '',
+                        keywords: 'room,see,describe',
+                        lang: '',
+                        inp: '',
+                        out: ''
+                    }
+                ],
+                startAt: null,
+                endAt: null
+            });
+            console.log('[TEST] Created test exam:', testExamId);
+        } else {
+            testExamId = existingTestExam.examId;
+        }
+
+        // 3. Ensure test exam is assigned to s2
+        const assigned = await dbGetAssignments(TEST_BYPASS_ID);
+        if (!assigned.includes(testExamId)) {
+            await dbSetAssignments(TEST_BYPASS_ID, [...assigned, testExamId]);
+            console.log('[TEST] Assigned test exam to s2');
+        }
+    } catch (e) {
+        console.warn('[TEST] Could not provision test student:', e.message);
+    }
+}
+
+// Run test provisioning on page load (after AWS is ready)
+setTimeout(() => provisionTestStudent(), 3000);
+
+// â”€â”€ CLEANUP ON APP CLOSE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 window.addEventListener('beforeunload', () => {
     try { ipcRenderer.send('hide-blackout'); } catch (e) { /* ignore */ }
     try { ipcRenderer.send('stop-process-monitor'); } catch (e) { /* ignore */ }
 });
 
-// Also handle the case where the main process itself is closing
 ipcRenderer.on('app-closing', () => {
     try { ipcRenderer.send('hide-blackout'); } catch (e) { /* ignore */ }
 });
+
+
+

@@ -1,15 +1,17 @@
 {
   "name": "secure-exam-system",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "SecurePro AI Exam Proctoring System",
   "main": "main.js",
   "author": "Admin",
   "license": "ISC",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win",
-    "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "build": "electron-builder --win --publish never",
+    "build:mac": "electron-builder --mac dmg zip --publish never",
+    "build:linux": "electron-builder --linux --publish never",
+    "release:win": "electron-builder --win --publish always",
+    "release:mac": "electron-builder --mac dmg zip --publish always"
   },
   "build": {
     "appId": "com.securepro.exam",
@@ -27,11 +29,18 @@
           ]
         }
       ],
+      "artifactName": "SecurePro-Setup.${ext}",
+      "requestedExecutionLevel": "requireAdministrator",
       "icon": "assets/icon.ico"
     },
     "mac": {
-      "target": "dmg",
-      "icon": "assets/icon.png"
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "SecurePro.${ext}",
+      "icon": "assets/icon.png",
+      "category": "public.app-category.education"
     },
     "dmg": {
       "title": "SecurePro Installer",
@@ -42,7 +51,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "SecurePro"
+      "shortcutName": "SecurePro",
+      "differentialPackage": true
     },
     "publish": [
       {
@@ -53,10 +63,23 @@
       }
     ],
     "files": [
-      "**/*",
+      "main.js",
+      "index.html",
+      "css/**/*",
+      "js/**/*",
+      "assets/**/*",
+      "models/**/*",
+      "package.json",
       "!dist/**",
+      "!.github/**",
       "!node_modules/.cache/**",
-      "!**/*.map"
+      "!**/*.map",
+      "!**/*.log",
+      "!**/*.rar",
+      "!**/*.zip",
+      "!**/*.md",
+      "!build_log.txt",
+      "!vercel_out.txt"
     ]
   },
   "devDependencies": {
@@ -65,7 +88,6 @@
     "png-to-ico": "^3.0.1"
   },
   "dependencies": {
-    "aws-sdk": "^2.1693.0",
     "electron-updater": "^6.3.9"
   }
 }

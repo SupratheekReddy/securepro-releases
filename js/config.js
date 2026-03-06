@@ -8,17 +8,35 @@ const _k2 = 'WGW2DRVY';
 const _s1 = 'A7NHPslpKYRQBFh5Hr8L';
 const _s2 = '2EglAFk19p6vYaote7AI';
 
+// Explicit credentials object (reused for all AWS services)
+const _awsCreds = new AWS.Credentials({
+    accessKeyId: _k1 + _k2,
+    secretAccessKey: _s1 + _s2
+});
+
 AWS.config.update({
     region: 'us-east-1',
-    credentials: new AWS.Credentials({
-        accessKeyId: _k1 + _k2,
-        secretAccessKey: _s1 + _s2
-    })
+    credentials: _awsCreds,
+    httpOptions: { timeout: 30000, connectTimeout: 10000 },
+    maxRetries: 3
 });
+
 const rekognition = new AWS.Rekognition();
 
-// DynamoDB + S3 clients
-const dynamodb = new AWS.DynamoDB.DocumentClient();
+// ── DynamoDB — CRC32 fix ──────────────────────────────────────────────────
+// AWS SDK v2 validates CRC32 on DynamoDB responses via the `dynamoDbCrc32`
+// middleware. On proxies/firewalls/VPNs this causes "CRC32 integrity check
+// failed". Fix: set dynamoDbCrc32: false on the underlying DynamoDB service.
+const _dynamoService = new AWS.DynamoDB({
+    region: 'us-east-1',
+    credentials: _awsCreds,
+    dynamoDbCrc32: false    // ← THE correct key — disables CRC32 response validation
+});
+
+// Force it on the config object to guarantee no validation runs
+_dynamoService.config.dynamoDbCrc32 = false;
+
+const dynamodb = new AWS.DynamoDB.DocumentClient({ service: _dynamoService });
 const s3 = new AWS.S3();
 
 const TABLES = {

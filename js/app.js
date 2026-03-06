@@ -45,6 +45,12 @@ const AUDIO_CALIBRATION_MS = 4000;
 const VOICE_MIN_ACTIVE_MS = 700;
 const VOICE_MIN_GAP_MS = 6000;
 const MIN_VOICE_RMS = 0.02;
+const OBJECT_DETECTION_STREAK_REQUIRED = 2;
+let objectDetectionStreak = { phone: 0, object: 0 };
+
+function normalizeAwsLabel(label) {
+    return String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
 
 // â”€â”€ SCREEN SCREENSHOT (for TAB_SWITCH proof) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function captureScreenScreenshot() {
@@ -1985,6 +1991,7 @@ async function launchExam(eid, videoDeviceId, audioDeviceId) {
     lastVioTime = {};
     questionTimers = {};
     activeQuestionIndex = null;
+    objectDetectionStreak = { phone: 0, object: 0 };
     window._highRiskWarned = false;
     window._lastHighRiskToast = null;
     const e = examDB[eid];
@@ -2511,36 +2518,53 @@ function checkFrame() {
     const b = getBuffer(b64);
     if (b.length < 100) return;
 
-    // Phone labels that Rekognition may return
-    const phoneLabels = [
-        'Phone', 'Mobile Phone', 'Cell Phone', 'Smartphone', 'Telephone',
-        'Mobile Device', 'Iphone', 'Android Phone'
-    ];
-    // Only detect the requested non-phone objects
-    const objectLabels = [
-        'Book', 'Textbook', 'Laptop', 'Laptop Computer', 'Notebook Computer',
-        'Electronics', 'Electronic Device',
-        'Tablet', 'Tablet Computer', 'iPad'
-    ];
+    // Strict allow-list (exact normalized label match only)
+    const phoneLabels = new Set([
+        'phone', 'mobile phone', 'cell phone', 'smartphone', 'telephone',
+        'mobile device', 'iphone', 'android phone'
+    ]);
+    const objectLabels = new Set([
+        'book', 'textbook',
+        'electronics', 'electronic device',
+        'laptop', 'laptop computer', 'notebook computer',
+        'tablet', 'tablet computer', 'ipad'
+    ]);
 
-    rekognition.detectLabels({ Image: { Bytes: b }, MinConfidence: 78 }, (e, d) => {
+    rekognition.detectLabels({ Image: { Bytes: b }, MinConfidence: 85 }, (e, d) => {
         if (e || !d || !d.Labels) return;
-        const labelNames = d.Labels.map(l => l.Name);
+        const labels = d.Labels.map(l => ({
+            name: normalizeAwsLabel(l.Name),
+            confidence: Number(l.Confidence || 0),
+            hasInstance: Array.isArray(l.Instances) && l.Instances.length > 0
+        }));
 
-        // Check for phone first (higher priority)
-        const isPhone = phoneLabels.some(pl =>
-            labelNames.some(ln => ln.toLowerCase().includes(pl.toLowerCase()))
+        // Phone detection
+        const isPhone = labels.some(l =>
+            phoneLabels.has(l.name) &&
+            l.confidence >= 92 &&
+            l.hasInstance
         );
-        if (isPhone) {
+        objectDetectionStreak.phone = isPhone ? objectDetectionStreak.phone + 1 : 0;
+        if (objectDetectionStreak.phone >= OBJECT_DETECTION_STREAK_REQUIRED) {
+            objectDetectionStreak.phone = 0;
+            objectDetectionStreak.object = 0;
             showVio('PHONE_DETECTED');
             return;
         }
 
-        // Check for other banned objects
-        const foundObj = objectLabels.find(ol =>
-            labelNames.some(ln => ln.toLowerCase().includes(ol.toLowerCase()))
+        // Book / electronics detection
+        const foundObj = labels.find(l =>
+            objectLabels.has(l.name) &&
+            l.confidence >= 93 &&
+            l.hasInstance
         );
         if (foundObj) {
+            objectDetectionStreak.object += 1;
+        } else {
+            objectDetectionStreak.object = 0;
+        }
+        if (objectDetectionStreak.object >= OBJECT_DETECTION_STREAK_REQUIRED) {
+            objectDetectionStreak.object = 0;
             showVio('OBJECT_DETECTED');
         }
     });

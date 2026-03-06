@@ -24,6 +24,19 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --prefer-offline
 
+      - name: Configure macOS code signing
+        if: ${{ secrets.MAC_CERT_P12_BASE64 != '' && secrets.MAC_CERT_PASSWORD != '' }}
+        run: |
+          echo "CSC_LINK=${{ secrets.MAC_CERT_P12_BASE64 }}" >> $GITHUB_ENV
+          echo "CSC_KEY_PASSWORD=${{ secrets.MAC_CERT_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Configure macOS notarization
+        if: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        run: |
+          echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> $GITHUB_ENV
+          echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> $GITHUB_ENV
+          echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> $GITHUB_ENV
+
       - name: Build MacOS App
         env:
           GH_TOKEN: ${{ secrets.RELEASES_GH_TOKEN || secrets.GITHUB_TOKEN }}

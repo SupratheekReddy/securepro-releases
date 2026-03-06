@@ -24,6 +24,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --prefer-offline
 
+      - name: Configure Windows code signing
+        if: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' && secrets.WINDOWS_CERT_PASSWORD != '' }}
+        shell: pwsh
+        run: |
+          "CSC_LINK=${{ secrets.WINDOWS_CERT_PFX_BASE64 }}" >> $env:GITHUB_ENV
+          "CSC_KEY_PASSWORD=${{ secrets.WINDOWS_CERT_PASSWORD }}" >> $env:GITHUB_ENV
+
       - name: Build Windows App
         env:
           GH_TOKEN: ${{ secrets.RELEASES_GH_TOKEN || secrets.GITHUB_TOKEN }}

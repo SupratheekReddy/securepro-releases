@@ -1,6 +1,6 @@
 {
   "name": "secure-exam-system",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "SecurePro AI Exam Proctoring System",
   "main": "main.js",
   "author": "Admin",
@@ -84,12 +84,14 @@
       "!**/*.md",
       "!build_log.txt",
       "!vercel_out.txt"
-    ]
+    ],
+    "afterSign": "build/notarize.js"
   },
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^26.0.12",
-    "png-to-ico": "^3.0.1"
+    "png-to-ico": "^3.0.1",
+    "@electron/notarize": "^2.5.0"
   },
   "dependencies": {
     "electron-updater": "^6.3.9",

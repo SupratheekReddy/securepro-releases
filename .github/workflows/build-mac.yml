@@ -29,10 +29,12 @@ jobs:
           MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
           MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
         run: |
-          if [ -n "$MAC_CERT_P12_BASE64" ] && [ -n "$MAC_CERT_PASSWORD" ]; then
-            echo "CSC_LINK=$MAC_CERT_P12_BASE64" >> "$GITHUB_ENV"
-            echo "CSC_KEY_PASSWORD=$MAC_CERT_PASSWORD" >> "$GITHUB_ENV"
+          if [ -z "$MAC_CERT_P12_BASE64" ] || [ -z "$MAC_CERT_PASSWORD" ]; then
+            echo "Missing MAC_CERT_P12_BASE64 or MAC_CERT_PASSWORD secret."
+            exit 1
           fi
+          echo "CSC_LINK=$MAC_CERT_P12_BASE64" >> "$GITHUB_ENV"
+          echo "CSC_KEY_PASSWORD=$MAC_CERT_PASSWORD" >> "$GITHUB_ENV"
 
       - name: Configure macOS notarization
         env:
@@ -40,11 +42,13 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -n "$APPLE_ID_SECRET" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD_SECRET" ] && [ -n "$APPLE_TEAM_ID_SECRET" ]; then
-            echo "APPLE_ID=$APPLE_ID_SECRET" >> "$GITHUB_ENV"
-            echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD_SECRET" >> "$GITHUB_ENV"
-            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET" >> "$GITHUB_ENV"
+          if [ -z "$APPLE_ID_SECRET" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD_SECRET" ] || [ -z "$APPLE_TEAM_ID_SECRET" ]; then
+            echo "Missing APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, or APPLE_TEAM_ID secret."
+            exit 1
           fi
+          echo "APPLE_ID=$APPLE_ID_SECRET" >> "$GITHUB_ENV"
+          echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD_SECRET" >> "$GITHUB_ENV"
+          echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET" >> "$GITHUB_ENV"
 
       - name: Build MacOS App
         env:

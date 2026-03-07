@@ -38,6 +38,10 @@
         "dmg",
         "zip"
       ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "artifactName": "SecurePro.${ext}",
       "icon": "assets/icon.png",
       "category": "public.app-category.education"
@@ -88,6 +92,7 @@
     "png-to-ico": "^3.0.1"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "pdf-parse": "^2.4.5"
   }
 }

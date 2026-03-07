@@ -41,7 +41,7 @@ let voiceActiveMs = 0;
 let lastVoiceViolationTs = 0;
 let roomAudioBaseline = { calibrated: false, rms: 0.012, speechRatio: 0.25, zcr: 0.08 };
 let roomAudioCalibration = { active: false, endsAt: 0, rmsSamples: [], speechRatioSamples: [], zcrSamples: [] };
-const AUDIO_CALIBRATION_MS = 4000;
+const AUDIO_CALIBRATION_MS = 5000;
 const VOICE_MIN_ACTIVE_MS = 450;
 const VOICE_MIN_GAP_MS = 5000;
 const MIN_VOICE_RMS = 0.012;
@@ -906,6 +906,116 @@ function addQBlock(type) {
     document.getElementById('q-area').appendChild(div);
 }
 
+// Auto-generate questions from PDF via Groq LLaMA
+async function handlePdfUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Check if the file is genuinely a PDF by using node fs + pdf-parse (runs in renderer thanks to nodeIntegration)
+    const fs = require('fs');
+    let pdfParse;
+    try {
+        pdfParse = require('pdf-parse');
+    } catch (e) {
+        toast('❌ Missing dependency: pdf-parse not installed.', true);
+        return;
+    }
+
+    toast('⏳ Reading PDF and generating questions...');
+    try {
+        const dataBuffer = fs.readFileSync(file.path);
+        const data = await pdfParse(dataBuffer);
+        const text = data.text;
+
+        if (!text || text.trim().length === 0) {
+            return toast('No extractable text found in PDF.', true);
+        }
+
+        // Truncate to avoid hitting LLaMA context limits too aggressively, assume first 15000 chars are the exams
+        const truncatedText = text.substring(0, 15000);
+
+        const prompt = `You are an AI assistant helping a professor digitize an exam. I will provide you with text extracted from an exam PDF. Extract ALL the questions (MCQs, short/long answers, and coding questions) along with their correct expected answers. Format your output strictly as a valid JSON array of objects. Do not wrap it in markdown block quotes (no \`\`\`json). Output raw JSON only. Here is the exact structure you MUST follow for each item in the array:
+
+For Multiple Choice Questions:
+{"type":"mcq", "text":"<question text>", "opts":"A: <opt1>, B: <opt2>...", "ans":"<A or B or C or D>"}
+
+For Long/Short Answers:
+{"type":"long", "text":"<question text>", "keywords":"<keyword1>, <keyword2>, ..."}
+
+For Coding/Programming Questions:
+{"type":"code", "text":"<question instructions>", "lang":"<javascript or python or c or c++>", "inp":"<sample stdin input>", "out":"<expected compilation output>"}
+
+Extracted Exam Text:
+${truncatedText}`;
+
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${GROQ_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: GROQ_MODEL,
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.2,
+                max_tokens: 3500
+            })
+        });
+
+        if (!response.ok) throw new Error('Groq API error ' + response.status);
+
+        const apiData = await response.json();
+        let reply = (apiData.choices?.[0]?.message?.content || '').trim();
+        if (reply.startsWith('\`\`\`')) reply = reply.replace(/^\`\`\`(?:json)?\s*/i, '').replace(/\s*\`\`\`$/, '');
+
+        const questions = JSON.parse(reply);
+
+        if (!Array.isArray(questions) || questions.length === 0) {
+            throw new Error('No questions extracted or invalid format returned.');
+        }
+
+        questions.forEach(q => {
+            if (['mcq', 'long', 'code'].includes(q.type)) {
+                addQBlock(q.type);
+                const blocks = document.querySelectorAll('#q-area .added-q');
+                const lastBlock = blocks[blocks.length - 1];
+
+                if (lastBlock) {
+                    const txtEl = lastBlock.querySelector('.q-txt');
+                    if (txtEl && q.text) txtEl.value = q.text;
+
+                    if (q.type === 'mcq') {
+                        const optEl = lastBlock.querySelector('.q-opt');
+                        const ansEl = lastBlock.querySelector('.q-ans');
+                        if (optEl && q.opts) optEl.value = q.opts;
+                        if (ansEl && q.ans) ansEl.value = q.ans;
+                    } else if (q.type === 'long') {
+                        const kwEl = lastBlock.querySelector('.q-keywords');
+                        if (kwEl && q.keywords) kwEl.value = q.keywords;
+                    } else if (q.type === 'code') {
+                        const langEl = lastBlock.querySelector('.q-lang');
+                        const inpEl = lastBlock.querySelector('.q-input-val');
+                        const outEl = lastBlock.querySelector('.q-output-val');
+                        if (langEl && q.lang) {
+                            const l = String(q.lang).toLowerCase();
+                            if (['javascript', 'python', 'c', 'c++'].includes(l)) langEl.value = l;
+                        }
+                        if (inpEl && q.inp) inpEl.value = q.inp;
+                        if (outEl && q.out) outEl.value = q.out;
+                    }
+                }
+            }
+        });
+
+        toast(`✅ Auto-generated ${questions.length} questions from PDF!`);
+    } catch (err) {
+        console.error('PDF Parse/AI Extraction Error:', err);
+        toast('❌ Failed to extract questions: ' + err.message, true);
+    } finally {
+        event.target.value = ''; // Reset input to allow re-upload 
+    }
+}
+
 async function saveExam() {
     const t = document.getElementById('exam-title').value; if (!t) return toast("Title Required", true);
     const qs = [];
@@ -1006,7 +1116,25 @@ function loadManageGroups() {
     const list = document.getElementById('existing-groups-list');
     const groupKeys = Object.keys(groupDB);
     if (groupKeys.length === 0) { list.innerHTML = '<div style="color:#94a3b8; text-align:center; padding:20px;">No groups created yet.</div>'; return; }
-    list.innerHTML = groupKeys.map(gid => { const g = groupDB[gid]; const mn = (g.students || []).map(sid => studentDB[sid] ? studentDB[sid].name : sid); return `<div class="result-card" style="cursor:default; flex-direction:column; align-items:stretch;"><div style="display:flex; justify-content:space-between; align-items:center;"><div><div style="font-weight:600;">${escapeHtml(g.name)}</div><div style="font-size:12px; color:#64748b; margin-top:2px;">${mn.length} student${mn.length !== 1 ? 's' : ''}</div></div><button onclick="deleteGroup('${gid}')" class="danger" style="width:auto; padding:6px 14px; font-size:12px;"><i class="fas fa-trash"></i> Delete</button></div><div style="font-size:12px; color:#64748b; margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb;">${mn.join(', ') || '<em>No students</em>'}</div></div>`; }).join('');
+    list.innerHTML = groupKeys.map(gid => {
+        const g = groupDB[gid];
+        const mn = (g.students || []).map(sid => studentDB[sid] ? studentDB[sid].name : sid);
+        return `<div class="result-card" style="cursor:default; flex-direction:column; align-items:stretch;"><div style="display:flex; justify-content:space-between; align-items:center;"><div><div style="font-weight:600;">${escapeHtml(g.name)}</div><div style="font-size:12px; color:#64748b; margin-top:2px;">${mn.length} student${mn.length !== 1 ? 's' : ''}</div></div><div><button onclick="editGroup('${gid}')" class="secondary" style="width:auto; padding:6px 14px; font-size:12px; margin-right:8px;"><i class="fas fa-edit"></i> Edit</button><button onclick="deleteGroup('${gid}')" class="danger" style="width:auto; padding:6px 14px; font-size:12px;"><i class="fas fa-trash"></i> Delete</button></div></div><div style="font-size:12px; color:#64748b; margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb;">${mn.join(', ') || '<em>No students</em>'}</div></div>`;
+    }).join('');
+}
+
+window.editingGroupId = null;
+
+function editGroup(gid) {
+    const group = groupDB[gid];
+    if (!group) return;
+    document.getElementById('group-name').value = group.name;
+    document.querySelectorAll('.gs').forEach(c => {
+        c.checked = (group.students || []).includes(c.value);
+    });
+    window.editingGroupId = gid;
+    const saveBtn = document.querySelector('button[onclick="saveGroup()"]');
+    if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save"></i> Update Group';
 }
 
 async function saveGroup() {
@@ -1015,10 +1143,15 @@ async function saveGroup() {
     const selected = [...document.querySelectorAll('.gs:checked')].map(c => c.value);
     if (selected.length === 0) return toast('Select at least one student', true);
     try {
-        await dbPutGroup('group_' + Date.now(), { name, students: selected });
+        const gid = window.editingGroupId || ('group_' + Date.now());
+        const isUpdate = !!window.editingGroupId;
+        await dbPutGroup(gid, { name, students: selected });
         document.getElementById('group-name').value = '';
         document.querySelectorAll('.gs:checked').forEach(c => c.checked = false);
-        toast(`Group "${name}" created \u2705`); loadManageGroups();
+        window.editingGroupId = null;
+        const saveBtn = document.querySelector('button[onclick="saveGroup()"]');
+        if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Group';
+        toast(`Group "${name}" ${isUpdate ? 'updated' : 'created'} \u2705`); loadManageGroups();
     } catch (e) { toast('Failed: ' + e.message, true); }
 }
 
@@ -2349,7 +2482,7 @@ function beginRoomAudioCalibration() {
     resetAudioMonitoringState();
     roomAudioCalibration.active = true;
     roomAudioCalibration.endsAt = Date.now() + AUDIO_CALIBRATION_MS;
-    toast('Calibrating room audio for 4 seconds. Please stay quiet.');
+    toast('Calibrating room audio for 5 seconds. Please stay quiet.');
 }
 
 function finishRoomAudioCalibration() {
@@ -2424,21 +2557,11 @@ function getAudioFeatures() {
 
 function isLikelyVoice(features) {
     if (!features) return false;
-    const rmsGate = Math.max(MIN_VOICE_RMS, roomAudioBaseline.rms * 1.35);
-    const speechGate = Math.max(0.16, roomAudioBaseline.speechRatio + 0.03);
-    const zcrMin = Math.max(0.01, roomAudioBaseline.zcr * 0.35);
-    const zcrMax = 0.30;
-    const highRatioMax = 0.72;
+    // Act as a room noise threshold: Any noise 1.5x louder than the room's average
+    // will trigger the alarm, rather than specifically restricting to human voice only.
+    const rmsGate = Math.max(MIN_VOICE_RMS, roomAudioBaseline.rms * 1.5);
 
-    const primaryVoiceHit = features.rms >= rmsGate && features.speechRatio >= speechGate;
-    const strongSpeechHit = features.rms >= (rmsGate * 0.9) && features.speechRatio >= (speechGate + 0.04);
-
-    return (
-        (primaryVoiceHit || strongSpeechHit) &&
-        features.highRatio <= highRatioMax &&
-        features.zcr >= zcrMin &&
-        features.zcr <= zcrMax
-    );
+    return features.rms >= rmsGate;
 }
 
 function setupAudio(stream) {
@@ -2523,14 +2646,12 @@ function checkFrame() {
 
     // Strict allow-list (exact normalized label match only)
     const phoneLabels = new Set([
-        'phone', 'mobile phone', 'cell phone', 'smartphone', 'telephone',
-        'mobile device', 'iphone', 'android phone'
+        'phone', 'mobile phone', 'cell phone', 'smartphone', 'telephone'
     ]);
     const objectLabels = new Set([
         'book', 'textbook',
-        'electronics', 'electronic device',
-        'laptop', 'laptop computer', 'notebook computer',
-        'tablet', 'tablet computer', 'ipad'
+        'tablet', 'tablet computer', 'ipad',
+        'document', 'paper'
     ]);
 
     rekognition.detectLabels({ Image: { Bytes: b }, MinConfidence: 85 }, (e, d) => {
@@ -2544,15 +2665,13 @@ function checkFrame() {
         // Phone detection
         const isPhone = labels.some(l =>
             phoneLabels.has(l.name) &&
-            l.confidence >= 92 &&
+            l.confidence >= 90 &&
             l.hasInstance
         );
         objectDetectionStreak.phone = isPhone ? objectDetectionStreak.phone + 1 : 0;
         if (objectDetectionStreak.phone >= OBJECT_DETECTION_STREAK_REQUIRED) {
             objectDetectionStreak.phone = 0;
-            objectDetectionStreak.object = 0;
             showVio('PHONE_DETECTED');
-            return;
         }
 
         // Book / electronics detection
@@ -2583,8 +2702,6 @@ function checkFrame() {
                     // 30Â° threshold for looking away (yaw = left/right, pitch = up/down)
                     if (Math.abs(p.Yaw) > 30 || Math.abs(p.Pitch) > 30) {
                         showVio('LOOKING_AWAY');
-                    } else {
-                        document.getElementById('v-overlay').style.display = 'none';
                     }
 
                     // Lip movement detection
@@ -2789,6 +2906,21 @@ window.addEventListener('beforeunload', () => {
 
 ipcRenderer.on('app-closing', () => {
     try { ipcRenderer.send('hide-blackout'); } catch (e) { /* ignore */ }
+});
+
+// Auth form enter key submission listener
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        const authScreen = document.getElementById('auth-screen');
+        if (authScreen && authScreen.style.display !== 'none') {
+            const activeView = document.querySelector('.auth-card > div:not(.hidden):not(.auth-tabs):not(.auth-logo):not(.auth-subtitle)');
+            if (activeView) {
+                if (activeView.id === 'view-login') handleStudentLogin();
+                else if (activeView.id === 'view-admin') handleAdminLogin();
+                else if (activeView.id === 'view-register') registerUser();
+            }
+        }
+    }
 });
 
 

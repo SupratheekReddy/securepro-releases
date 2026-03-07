@@ -155,13 +155,21 @@
                             style="font-size:11px; color:#64748b; margin:4px 0 12px; padding:8px 12px; background:rgba(0,212,255,0.05); border-radius:6px; border-left:2px solid rgba(0,212,255,0.3);">
                             &#128274; Students can only access the exam during this window. Leave blank for no
                             restriction.</div>
-                        <div style="display:flex; gap:8px; margin:12px 0;">
-                            <button onclick="addQBlock('mcq')" class="secondary"
-                                style="width:auto; padding:8px 14px; font-size:12px;">+ MCQ</button>
-                            <button onclick="addQBlock('long')" class="secondary"
-                                style="width:auto; padding:8px 14px; font-size:12px;">+ Long</button>
-                            <button onclick="addQBlock('code')" class="secondary"
-                                style="width:auto; padding:8px 14px; font-size:12px;">+ Code</button>
+                        <div style="display:flex; gap:8px; margin:12px 0; align-items:center; flex-wrap:wrap;">
+                            <div style="display:flex; gap:8px;">
+                                <button onclick="addQBlock('mcq')" class="secondary"
+                                    style="width:auto; padding:8px 14px; font-size:12px;">+ MCQ</button>
+                                <button onclick="addQBlock('long')" class="secondary"
+                                    style="width:auto; padding:8px 14px; font-size:12px;">+ Long</button>
+                                <button onclick="addQBlock('code')" class="secondary"
+                                    style="width:auto; padding:8px 14px; font-size:12px;">+ Code</button>
+                            </div>
+                            <div style="width:1px; height:20px; background:var(--border); margin:0 4px;"></div>
+                            <input type="file" id="pdf-upload" accept="application/pdf" style="display:none;"
+                                onchange="handlePdfUpload(event)">
+                            <button onclick="document.getElementById('pdf-upload').click()" class="secondary"
+                                style="width:auto; padding:8px 14px; font-size:12px; border-color:#8b5cf6; color:#8b5cf6;"><i
+                                    class="fas fa-file-pdf"></i> Auto-Generate from PDF</button>
                         </div>
                         <div id="q-area"></div>
                         <button onclick="saveExam()" style="margin-top:10px;"><i class="fas fa-save"></i> Save

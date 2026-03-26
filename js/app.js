@@ -600,7 +600,7 @@ async function verifyFace(id, stream, statusEl, btn) {
 
     const v = document.getElementById('login-video');
     if (!v.videoWidth || !v.videoHeight) {
-        if (statusEl) statusEl.innerText = '\u26a0\ufe0f Video not ready, retrying...';
+        if (statusEl) statusEl.innerText = '⚠️ Video not ready, retrying...';
         setTimeout(() => verifyFace(id, stream, statusEl, btn), 800);
         return;
     }
@@ -610,7 +610,7 @@ async function verifyFace(id, stream, statusEl, btn) {
     const targetBuf = getBuffer(c.toDataURL('image/jpeg'));
 
     if (targetBuf.length < 100 || targetBuf[0] !== 0xFF || targetBuf[1] !== 0xD8) {
-        if (statusEl) statusEl.innerText = '\u26a0\ufe0f Frame not ready, retrying...';
+        if (statusEl) statusEl.innerText = '⚠️ Frame not ready, retrying...';
         setTimeout(() => verifyFace(id, stream, statusEl, btn), 800);
         return;
     }
@@ -732,7 +732,7 @@ async function loadStudents() {
 async function loadAnalytics() {
     const container = document.getElementById('analytics-content');
     if (!container) return;
-    container.innerHTML = '<div style="color:#94a3b8; text-align:center; padding:40px;"><i class="fas fa-spinner fa-spin"></i> Loading analytics...</div>';
+    container.innerHTML = '<div style="color:#a78bfa; text-align:center; padding:40px;"><i class="fas fa-spinner fa-spin" style="font-size:24px;"></i><div style="margin-top:12px; font-size:13px;">Loading analytics...</div></div>';
 
     try {
         await dbGetAllStudents();
@@ -742,117 +742,287 @@ async function loadAnalytics() {
         const allAttempts = [];
         for (const sid of Object.keys(studentDB)) {
             await dbGetStudentResults(sid);
-            (resultsDB[sid] || []).forEach(a => allAttempts.push({ ...a, studentId: sid }));
+            (resultsDB[sid] || []).forEach(a => allAttempts.push({ ...a, studentId: sid, studentName: studentDB[sid]?.name || sid }));
         }
+
+        // Build per-exam stats
+        const examStats = {};
+        allAttempts.forEach(a => {
+            const eid = a.examID;
+            if (!examStats[eid]) examStats[eid] = { title: a.examTitle || (examDB[eid]?.title || eid), attempts: [], totalViolations: 0, highRisk: 0 };
+            examStats[eid].attempts.push(a);
+            examStats[eid].totalViolations += (a.violations || []).length;
+            if ((a.cheatingScore || 0) > 50) examStats[eid].highRisk++;
+        });
+
+        // Also add exams with no attempts
+        Object.keys(examDB).forEach(eid => {
+            if (!examStats[eid]) examStats[eid] = { title: examDB[eid]?.title || eid, attempts: [], totalViolations: 0, highRisk: 0 };
+        });
 
         const totalStudents = Object.keys(studentDB).length;
         const totalExams = Object.keys(examDB).length;
         const totalAttempts = allAttempts.length;
-        const gradedAttempts = allAttempts.filter(a => a.grades && a.grades.length > 0);
 
-        // Score stats
-        const scores = gradedAttempts.map(a => {
-            const total = a.grades.reduce((s, g) => s + (g || 0), 0);
-            const max = a.answers.length * 10;
-            return max > 0 ? Math.round((total / max) * 100) : 0;
+        // Overview stats
+        const allScores = allAttempts.filter(a => a.grades && a.grades.length > 0).map(a => {
+            const t = a.grades.reduce((s, g) => s + (g || 0), 0);
+            const m = a.answers.length * 10;
+            return m > 0 ? Math.round((t / m) * 100) : 0;
         });
-        const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-        const passCount = scores.filter(s => s >= 50).length;
-        const failCount = scores.length - passCount;
+        const avgScore = allScores.length > 0 ? Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length) : 0;
+        const totalHighRisk = allAttempts.filter(a => (a.cheatingScore || 0) > 50).length;
 
-        // Violation stats
-        const vioTypeCounts = {};
-        let totalViolations = 0;
-        allAttempts.forEach(a => (a.violations || []).forEach(v => {
-            vioTypeCounts[v.type] = (vioTypeCounts[v.type] || 0) + 1;
-            totalViolations++;
-        }));
-        const highRisk = allAttempts.filter(a => (a.cheatingScore || 0) > 50).length;
-
-        // Per-exam breakdown
-        const examStats = {};
-        allAttempts.forEach(a => {
-            if (!examStats[a.examID]) examStats[a.examID] = { title: a.examTitle || (examDB[a.examID]?.title || a.examID), scores: [], attempts: 0 };
-            examStats[a.examID].attempts++;
-            if (a.grades && a.grades.length > 0) {
+        // Render exam cards
+        let examCards = '';
+        Object.entries(examStats).forEach(([eid, es]) => {
+            const attemptCount = es.attempts.length;
+            const gradedAttempts = es.attempts.filter(a => a.grades && a.grades.length > 0);
+            const scores = gradedAttempts.map(a => {
                 const t = a.grades.reduce((s, g) => s + (g || 0), 0);
                 const m = a.answers.length * 10;
-                if (m > 0) examStats[a.examID].scores.push(Math.round((t / m) * 100));
-            }
+                return m > 0 ? Math.round((t / m) * 100) : 0;
+            });
+            const avg = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+            const passCount = scores.filter(s => s >= 50).length;
+            const passRate = scores.length > 0 ? Math.round(passCount / scores.length * 100) : null;
+            const riskLevel = es.highRisk > 0 ? 'HIGH' : es.totalViolations > 5 ? 'MODERATE' : 'LOW';
+            const riskColor = riskLevel === 'HIGH' ? '#ef4444' : riskLevel === 'MODERATE' ? '#f59e0b' : '#00FF9D';
+            const scoreColor = avg === null ? '#64748b' : avg >= 70 ? '#00FF9D' : avg >= 40 ? '#f59e0b' : '#ef4444';
+            const duration = examDB[eid]?.duration || '\u2014';
+            const qCount = examDB[eid]?.questions?.length || '\u2014';
+
+            examCards += `
+            <div class="analytics-exam-card" onclick="loadExamAnalytics('${eid}')" style="background:rgba(43,31,91,0.25); border:1px solid rgba(124,58,237,0.12); border-radius:16px; padding:24px; cursor:pointer; transition:all 0.35s cubic-bezier(0.16,1,0.3,1); position:relative; overflow:hidden;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px;">
+                    <div style="flex:1;">
+                        <div style="font-family:var(--font-display); font-size:17px; font-weight:700; color:var(--text-primary); margin-bottom:4px; letter-spacing:0.02em;">${escapeHtml(es.title)}</div>
+                        <div style="font-size:11px; color:#64748b; font-family:var(--font-mono); letter-spacing:0.1em;">${qCount} QUESTIONS \u00b7 ${duration} MIN</div>
+                    </div>
+                    <div style="background:${riskColor}15; border:1px solid ${riskColor}30; border-radius:8px; padding:4px 10px; font-size:10px; font-weight:700; color:${riskColor}; font-family:var(--font-mono); letter-spacing:0.1em;">${riskLevel} RISK</div>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:16px;">
+                    <div style="text-align:center; padding:12px; background:rgba(124,58,237,0.08); border-radius:10px;">
+                        <div style="font-size:22px; font-weight:800; color:#a78bfa; font-family:var(--font-display);">${attemptCount}</div>
+                        <div style="font-size:10px; color:#64748b; margin-top:2px; letter-spacing:0.08em;">ATTEMPTS</div>
+                    </div>
+                    <div style="text-align:center; padding:12px; background:rgba(124,58,237,0.08); border-radius:10px;">
+                        <div style="font-size:22px; font-weight:800; color:${scoreColor}; font-family:var(--font-display);">${avg !== null ? avg + '%' : '\u2014'}</div>
+                        <div style="font-size:10px; color:#64748b; margin-top:2px; letter-spacing:0.08em;">AVG SCORE</div>
+                    </div>
+                    <div style="text-align:center; padding:12px; background:rgba(124,58,237,0.08); border-radius:10px;">
+                        <div style="font-size:22px; font-weight:800; color:#f97316; font-family:var(--font-display);">${es.totalViolations}</div>
+                        <div style="font-size:10px; color:#64748b; margin-top:2px; letter-spacing:0.08em;">VIOLATIONS</div>
+                    </div>
+                </div>
+                ${passRate !== null ? `<div style="margin-bottom:6px;"><div style="display:flex; justify-content:space-between; font-size:11px; color:#64748b; margin-bottom:4px;"><span>Pass Rate</span><span style="color:${passRate >= 50 ? '#00FF9D' : '#ef4444'}; font-weight:600;">${passRate}%</span></div><div style="height:6px; border-radius:3px; background:rgba(255,255,255,0.06);"><div style="height:100%; width:${passRate}%; background:linear-gradient(90deg,#7C3AED,#00D4FF); border-radius:3px; transition:width 0.6s;"></div></div></div>` : '<div style="font-size:11px; color:#475569;">No graded attempts yet</div>'}
+                <div style="position:absolute; bottom:12px; right:16px; font-size:11px; color:#7C3AED; font-weight:600;">View Details <i class="fas fa-arrow-right" style="margin-left:4px;"></i></div>
+            </div>`;
         });
-
-        const vioTypeLabels = { NO_FACE: 'No Face', MULTIPLE_FACES: 'Multi-Face', PHONE_DETECTED: 'Phone', TAB_SWITCH: 'Tab Switch', LOOKING_AWAY: 'Looking Away', NOISE_DETECTED: 'Voice', COPY_PASTE_ATTEMPT: 'Copy/Paste', AI_PASTE_DETECTED: 'AI Paste', LIP_MOVEMENT: 'Lip Move', BANNED_PROCESS_RUNNING: 'Banned App', MULTIPLE_DISPLAYS: 'Multi-Display', NETWORK_ANOMALY: 'Network', IDENTITY_MISMATCH: 'Identity', UNNATURAL_TYPING: 'Unnat. Typing', CURSOR_OUT_OF_BOUNDS: 'Cursor Out', INACTIVITY_DETECTED: 'Inactivity' };
-
-        const topVios = Object.entries(vioTypeCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
         container.innerHTML = `
         <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:28px;">
-            <div style="background:rgba(0,212,255,0.07); border:1px solid rgba(0,212,255,0.2); border-radius:12px; padding:20px; text-align:center;">
-                <div style="font-size:32px; font-weight:700; color:#00D4FF; font-family:var(--font-display);">${totalStudents}</div>
-                <div style="font-size:12px; color:#94a3b8; margin-top:4px;">STUDENTS</div>
+            <div style="background:rgba(124,58,237,0.1); border:1px solid rgba(124,58,237,0.2); border-radius:14px; padding:20px; text-align:center; backdrop-filter:blur(6px);">
+                <div style="font-size:32px; font-weight:800; background:linear-gradient(135deg,#a78bfa,#00D4FF); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; font-family:var(--font-display);">${totalStudents}</div>
+                <div style="font-size:10px; color:#64748b; margin-top:4px; letter-spacing:0.15em; font-family:var(--font-mono);">STUDENTS</div>
             </div>
-            <div style="background:rgba(129,140,248,0.07); border:1px solid rgba(129,140,248,0.2); border-radius:12px; padding:20px; text-align:center;">
-                <div style="font-size:32px; font-weight:700; color:#818cf8; font-family:var(--font-display);">${totalExams}</div>
-                <div style="font-size:12px; color:#94a3b8; margin-top:4px;">EXAMS</div>
+            <div style="background:rgba(124,58,237,0.1); border:1px solid rgba(124,58,237,0.2); border-radius:14px; padding:20px; text-align:center; backdrop-filter:blur(6px);">
+                <div style="font-size:32px; font-weight:800; background:linear-gradient(135deg,#818cf8,#a78bfa); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; font-family:var(--font-display);">${totalExams}</div>
+                <div style="font-size:10px; color:#64748b; margin-top:4px; letter-spacing:0.15em; font-family:var(--font-mono);">EXAMS</div>
             </div>
-            <div style="background:rgba(0,255,157,0.07); border:1px solid rgba(0,255,157,0.2); border-radius:12px; padding:20px; text-align:center;">
-                <div style="font-size:32px; font-weight:700; color:#00FF9D; font-family:var(--font-display);">${avgScore}%</div>
-                <div style="font-size:12px; color:#94a3b8; margin-top:4px;">AVG SCORE</div>
+            <div style="background:rgba(0,255,157,0.06); border:1px solid rgba(0,255,157,0.15); border-radius:14px; padding:20px; text-align:center; backdrop-filter:blur(6px);">
+                <div style="font-size:32px; font-weight:800; color:#00FF9D; font-family:var(--font-display);">${avgScore}%</div>
+                <div style="font-size:10px; color:#64748b; margin-top:4px; letter-spacing:0.15em; font-family:var(--font-mono);">AVG SCORE</div>
             </div>
-            <div style="background:rgba(239,68,68,0.07); border:1px solid rgba(239,68,68,0.2); border-radius:12px; padding:20px; text-align:center;">
-                <div style="font-size:32px; font-weight:700; color:#ef4444; font-family:var(--font-display);">${highRisk}</div>
-                <div style="font-size:12px; color:#94a3b8; margin-top:4px;">HIGH RISK</div>
-            </div>
-        </div>
-
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px;">
-            <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:14px; padding:20px;">
-                <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px;">ðŸŽ¯ Pass / Fail Distribution</div>
-                <div style="display:flex; align-items:center; justify-content:center; gap:30px;">
-                    <div style="text-align:center;">
-                        <div style="font-size:42px; font-weight:700; color:#00FF9D;">${passCount}</div>
-                        <div style="font-size:12px; color:#94a3b8;">PASSED</div>
-                    </div>
-                    <div style="width:1px; height:60px; background:var(--border-light);"></div>
-                    <div style="text-align:center;">
-                        <div style="font-size:42px; font-weight:700; color:#ef4444;">${failCount}</div>
-                        <div style="font-size:12px; color:#94a3b8;">FAILED</div>
-                    </div>
-                </div>
-                ${scores.length > 0 ? `
-                <div style="margin-top:16px;">
-                    <div style="height:12px; border-radius:6px; background:rgba(255,255,255,0.05); overflow:hidden;">
-                        <div style="height:100%; width:${passCount > 0 ? Math.round(passCount / scores.length * 100) : 0}%; background:linear-gradient(90deg,#00FF9D,#00D4FF); border-radius:6px; transition:width 0.6s;"></div>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; font-size:11px; color:#64748b; margin-top:4px;"><span>0%</span><span>${scores.length > 0 ? Math.round(passCount / scores.length * 100) : 0}% pass rate</span><span>100%</span></div>
-                </div>` : '<div style="color:#64748b; font-size:13px; margin-top:12px;">No graded attempts yet.</div>'}
-            </div>
-
-            <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:14px; padding:20px;">
-                <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px;">âš ï¸ Top Violation Types</div>
-                ${topVios.length === 0 ? '<div style="color:#64748b; font-size:13px;">No violations recorded.</div>' : topVios.map(([type, count]) => {
-            const maxVio = topVios[0][1];
-            const pct = Math.round(count / maxVio * 100);
-            const colors = { NO_FACE: '#ef4444', MULTIPLE_FACES: '#ef4444', PHONE_DETECTED: '#dc2626', TAB_SWITCH: '#f59e0b', LOOKING_AWAY: '#f97316', NOISE_DETECTED: '#6366f1', COPY_PASTE_ATTEMPT: '#f59e0b', AI_PASTE_DETECTED: '#7C3AED', LIP_MOVEMENT: '#EC4899', BANNED_PROCESS_RUNNING: '#dc2626', MULTIPLE_DISPLAYS: '#f97316', NETWORK_ANOMALY: '#f59e0b', IDENTITY_MISMATCH: '#ef4444', UNNATURAL_TYPING: '#7C3AED', CURSOR_OUT_OF_BOUNDS: '#94a3b8', INACTIVITY_DETECTED: '#64748b' };
-            const c = colors[type] || '#6366f1';
-            return `<div style="margin-bottom:10px;"><div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;"><span style="color:var(--text-secondary);">${vioTypeLabels[type] || type}</span><span style="color:${c}; font-weight:600;">${count}</span></div><div style="height:6px; border-radius:3px; background:rgba(255,255,255,0.05);"><div style="height:100%; width:${pct}%; background:${c}; border-radius:3px;"></div></div></div>`;
-        }).join('')}
+            <div style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.15); border-radius:14px; padding:20px; text-align:center; backdrop-filter:blur(6px);">
+                <div style="font-size:32px; font-weight:800; color:#ef4444; font-family:var(--font-display);">${totalHighRisk}</div>
+                <div style="font-size:10px; color:#64748b; margin-top:4px; letter-spacing:0.15em; font-family:var(--font-mono);">HIGH RISK</div>
             </div>
         </div>
 
-        <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:14px; padding:20px;">
-            <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px;">ðŸ“Š Per-Exam Score Breakdown</div>
-            ${Object.keys(examStats).length === 0 ? '<div style="color:#64748b;">No exam data yet.</div>' : `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse;"><thead><tr style="background:rgba(255,255,255,0.03); text-align:left;"><th style="padding:10px 12px; font-size:12px; color:#64748b; text-transform:uppercase;">Exam</th><th style="padding:10px 12px; font-size:12px; color:#64748b; text-transform:uppercase;">Attempts</th><th style="padding:10px 12px; font-size:12px; color:#64748b; text-transform:uppercase;">Avg Score</th><th style="padding:10px 12px; font-size:12px; color:#64748b; text-transform:uppercase;">Score Bar</th></tr></thead><tbody>${Object.values(examStats).map(es => {
-            const avg = es.scores.length > 0 ? Math.round(es.scores.reduce((a, b) => a + b, 0) / es.scores.length) : null;
-            const barColor = avg === null ? '#475569' : avg >= 70 ? '#00FF9D' : avg >= 40 ? '#f59e0b' : '#ef4444';
-            return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);"><td style="padding:12px; font-weight:600; color:var(--text-primary);">${escapeHtml(es.title)}</td><td style="padding:12px; color:#94a3b8;">${es.attempts}</td><td style="padding:12px; font-weight:700; color:${barColor};">${avg !== null ? avg + '%' : 'â€”'}</td><td style="padding:12px; min-width:150px;">${avg !== null ? `<div style="height:8px; border-radius:4px; background:rgba(255,255,255,0.05);"><div style="height:100%; width:${avg}%; background:${barColor}; border-radius:4px;"></div></div>` : '<span style="color:#475569; font-size:12px;">Not graded</span>'}</td></tr>`;
-        }).join('')}</tbody></table></div>`}
+        <div style="font-weight:700; font-size:15px; color:var(--text-primary); margin-bottom:16px; font-family:var(--font-display); letter-spacing:0.03em;"><i class="fas fa-th-large" style="color:#7C3AED; margin-right:8px;"></i>Select an Exam for Detailed Analytics</div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:18px;">
+            ${examCards || '<div style="color:#64748b; padding:30px; text-align:center; grid-column:1/-1;">No exams created yet.</div>'}
         </div>`;
+
+        // Add hover animations to exam cards
+        container.querySelectorAll('.analytics-exam-card').forEach(card => {
+            card.addEventListener('mouseenter', () => { card.style.transform = 'translateY(-4px)'; card.style.borderColor = 'rgba(124,58,237,0.3)'; card.style.boxShadow = '0 12px 40px rgba(124,58,237,0.12)'; });
+            card.addEventListener('mouseleave', () => { card.style.transform = 'translateY(0)'; card.style.borderColor = 'rgba(124,58,237,0.12)'; card.style.boxShadow = 'none'; });
+        });
+
+        // Store data for drill-down
+        window._analyticsCache = { allAttempts, examStats };
 
     } catch (e) {
         container.innerHTML = `<div style="color:#ef4444; padding:20px;">Error loading analytics: ${e.message}</div>`;
     }
 }
+
+async function loadExamAnalytics(examId) {
+    const container = document.getElementById('analytics-content');
+    if (!container || !window._analyticsCache) return;
+
+    const { allAttempts, examStats } = window._analyticsCache;
+    const es = examStats[examId];
+    if (!es) return;
+
+    const attempts = es.attempts;
+    const gradedAttempts = attempts.filter(a => a.grades && a.grades.length > 0);
+    const scores = gradedAttempts.map(a => {
+        const t = a.grades.reduce((s, g) => s + (g || 0), 0);
+        const m = a.answers.length * 10;
+        return m > 0 ? Math.round((t / m) * 100) : 0;
+    });
+    const avg = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const passCount = scores.filter(s => s >= 50).length;
+    const failCount = scores.length - passCount;
+    const passRate = scores.length > 0 ? Math.round(passCount / scores.length * 100) : 0;
+    const highest = scores.length > 0 ? Math.max(...scores) : 0;
+    const lowest = scores.length > 0 ? Math.min(...scores) : 0;
+
+    // Violations
+    const vioTypeCounts = {};
+    let totalViolations = 0;
+    attempts.forEach(a => (a.violations || []).forEach(v => {
+        vioTypeCounts[v.type] = (vioTypeCounts[v.type] || 0) + 1;
+        totalViolations++;
+    }));
+    const highRisk = attempts.filter(a => (a.cheatingScore || 0) > 50).length;
+    const avgCheatingScore = attempts.length > 0 ? Math.round(attempts.reduce((s, a) => s + (a.cheatingScore || 0), 0) / attempts.length) : 0;
+
+    const vioTypeLabels = { NO_FACE: 'No Face Detected', MULTIPLE_FACES: 'Multiple Faces', PHONE_DETECTED: 'Phone Recognition', TAB_SWITCH: 'Tab Switch', LOOKING_AWAY: 'Looking Away', NOISE_DETECTED: 'Voice Detected', COPY_PASTE_ATTEMPT: 'Copy/Paste', AI_PASTE_DETECTED: 'AI Paste', LIP_MOVEMENT: 'Lip Movement', BANNED_PROCESS_RUNNING: 'Banned App', MULTIPLE_DISPLAYS: 'Multi-Display', NETWORK_ANOMALY: 'Network Anomaly', IDENTITY_MISMATCH: 'Identity Mismatch', UNNATURAL_TYPING: 'Unnat. Typing', CURSOR_OUT_OF_BOUNDS: 'Cursor Out', INACTIVITY_DETECTED: 'Inactivity', OBJECT_DETECTED: 'Object Detected' };
+    const topVios = Object.entries(vioTypeCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+    // Score distribution histogram
+    const buckets = Array(10).fill(0);
+    scores.forEach(s => { const idx = Math.min(Math.floor(s / 10), 9); buckets[idx]++; });
+    const maxBucket = Math.max(...buckets, 1);
+
+    let histogramBars = '';
+    buckets.forEach((count, i) => {
+        const pct = Math.round(count / maxBucket * 100);
+        const label = `${i * 10}-${(i + 1) * 10}`;
+        const barColor = i >= 5 ? '#00FF9D' : i >= 3 ? '#f59e0b' : '#ef4444';
+        histogramBars += `<div style="display:flex; flex-direction:column; align-items:center; flex:1;">
+            <div style="font-size:10px; color:#94a3b8; margin-bottom:4px; font-weight:600;">${count}</div>
+            <div style="width:100%; height:100px; background:rgba(255,255,255,0.04); border-radius:4px 4px 0 0; display:flex; align-items:flex-end;">
+                <div style="width:100%; height:${pct}%; background:${barColor}; border-radius:4px 4px 0 0; transition:height 0.5s; min-height:${count > 0 ? '4px' : '0'};"></div>
+            </div>
+            <div style="font-size:9px; color:#475569; margin-top:4px;">${label}</div>
+        </div>`;
+    });
+
+    // Per-student table rows
+    let studentRows = '';
+    attempts.forEach((a, idx) => {
+        const graded = a.grades && a.grades.length > 0;
+        const total = graded ? a.grades.reduce((s, g) => s + (g || 0), 0) : null;
+        const maxMarks = graded ? a.answers.length * 10 : null;
+        const pct = graded && maxMarks > 0 ? Math.round((total / maxMarks) * 100) : null;
+        const vioCount = (a.violations || []).length;
+        const cheatScore = a.cheatingScore || 0;
+        const scoreColor = pct === null ? '#475569' : pct >= 70 ? '#00FF9D' : pct >= 40 ? '#f59e0b' : '#ef4444';
+        const cheatColor = cheatScore <= 20 ? '#00FF9D' : cheatScore <= 50 ? '#f59e0b' : '#ef4444';
+        const statusBadge = pct === null ? '<span style="color:#475569;">Pending</span>' : pct >= 50 ? '<span style="color:#00FF9D; font-weight:600;">PASS</span>' : '<span style="color:#ef4444; font-weight:600;">FAIL</span>';
+
+        studentRows += `<tr style="border-bottom:1px solid rgba(124,58,237,0.08); animation:rowSlideIn 0.3s ease both; animation-delay:${idx * 0.03}s;">
+            <td style="padding:12px; color:var(--text-primary); font-weight:600;">${escapeHtml(a.studentName)}</td>
+            <td style="padding:12px; color:${scoreColor}; font-weight:700; font-family:var(--font-mono);">${pct !== null ? pct + '%' : '\u2014'}</td>
+            <td style="padding:12px;">${statusBadge}</td>
+            <td style="padding:12px; color:#f97316; font-family:var(--font-mono);">${vioCount}</td>
+            <td style="padding:12px;"><span style="color:${cheatColor}; font-weight:700; font-family:var(--font-mono);">${cheatScore}</span><span style="color:#475569;">/100</span></td>
+        </tr>`;
+    });
+
+    const cheatingColor = avgCheatingScore <= 20 ? '#00FF9D' : avgCheatingScore <= 50 ? '#f59e0b' : '#ef4444';
+
+    container.innerHTML = `
+    <button onclick="loadAnalytics()" class="secondary" style="width:auto; padding:8px 18px; margin-bottom:20px; font-size:13px; display:inline-flex; align-items:center; gap:6px;"><i class="fas fa-arrow-left"></i> Back to All Exams</button>
+
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:24px;">
+        <div style="width:48px; height:48px; background:linear-gradient(135deg,#7C3AED,#6366f1); border-radius:14px; display:flex; align-items:center; justify-content:center;">
+            <i class="fas fa-chart-pie" style="color:white; font-size:20px;"></i>
+        </div>
+        <div>
+            <div style="font-family:var(--font-display); font-size:22px; font-weight:700; color:var(--text-primary); letter-spacing:0.02em;">${escapeHtml(es.title)}</div>
+            <div style="font-size:12px; color:#64748b;">${attempts.length} attempt${attempts.length !== 1 ? 's' : ''} \u00b7 ${totalViolations} violation${totalViolations !== 1 ? 's' : ''}</div>
+        </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:24px;">
+        <div style="background:rgba(124,58,237,0.1); border:1px solid rgba(124,58,237,0.2); border-radius:12px; padding:16px; text-align:center;">
+            <div style="font-size:28px; font-weight:800; color:#a78bfa; font-family:var(--font-display);">${attempts.length}</div>
+            <div style="font-size:9px; color:#64748b; letter-spacing:0.12em; font-family:var(--font-mono); margin-top:2px;">ATTEMPTS</div>
+        </div>
+        <div style="background:rgba(0,255,157,0.06); border:1px solid rgba(0,255,157,0.15); border-radius:12px; padding:16px; text-align:center;">
+            <div style="font-size:28px; font-weight:800; color:#00FF9D; font-family:var(--font-display);">${avg}%</div>
+            <div style="font-size:9px; color:#64748b; letter-spacing:0.12em; font-family:var(--font-mono); margin-top:2px;">AVG SCORE</div>
+        </div>
+        <div style="background:rgba(0,212,255,0.06); border:1px solid rgba(0,212,255,0.15); border-radius:12px; padding:16px; text-align:center;">
+            <div style="font-size:28px; font-weight:800; color:#00D4FF; font-family:var(--font-display);">${passRate}%</div>
+            <div style="font-size:9px; color:#64748b; letter-spacing:0.12em; font-family:var(--font-mono); margin-top:2px;">PASS RATE</div>
+        </div>
+        <div style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.15); border-radius:12px; padding:16px; text-align:center;">
+            <div style="font-size:28px; font-weight:800; color:#ef4444; font-family:var(--font-display);">${highRisk}</div>
+            <div style="font-size:9px; color:#64748b; letter-spacing:0.12em; font-family:var(--font-mono); margin-top:2px;">HIGH RISK</div>
+        </div>
+        <div style="background:rgba(249,115,22,0.06); border:1px solid rgba(249,115,22,0.15); border-radius:12px; padding:16px; text-align:center;">
+            <div style="font-size:28px; font-weight:800; color:${cheatingColor}; font-family:var(--font-display);">${avgCheatingScore}</div>
+            <div style="font-size:9px; color:#64748b; letter-spacing:0.12em; font-family:var(--font-mono); margin-top:2px;">AVG CHEAT</div>
+        </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:24px;">
+        <div style="background:rgba(43,31,91,0.25); border:1px solid rgba(124,58,237,0.12); border-radius:14px; padding:22px; backdrop-filter:blur(6px);">
+            <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px; font-family:var(--font-display);">🎯 Pass / Fail Distribution</div>
+            <div style="display:flex; align-items:center; justify-content:center; gap:30px;">
+                <div style="text-align:center;">
+                    <div style="font-size:42px; font-weight:800; color:#00FF9D; font-family:var(--font-display);">${passCount}</div>
+                    <div style="font-size:11px; color:#64748b; letter-spacing:0.1em; font-family:var(--font-mono);">PASSED</div>
+                </div>
+                <div style="width:1px; height:60px; background:rgba(124,58,237,0.2);"></div>
+                <div style="text-align:center;">
+                    <div style="font-size:42px; font-weight:800; color:#ef4444; font-family:var(--font-display);">${failCount}</div>
+                    <div style="font-size:11px; color:#64748b; letter-spacing:0.1em; font-family:var(--font-mono);">FAILED</div>
+                </div>
+            </div>
+            ${scores.length > 0 ? `<div style="margin-top:18px;"><div style="height:10px; border-radius:5px; background:rgba(255,255,255,0.05); overflow:hidden;"><div style="height:100%; width:${passRate}%; background:linear-gradient(90deg,#7C3AED,#00FF9D); border-radius:5px; transition:width 0.8s ease;"></div></div><div style="display:flex; justify-content:space-between; font-size:10px; color:#475569; margin-top:4px;"><span>0%</span><span style="color:${passRate >= 50 ? '#00FF9D' : '#ef4444'}; font-weight:600;">${passRate}% pass rate</span><span>100%</span></div></div>` : '<div style="color:#475569; font-size:12px; margin-top:12px; text-align:center;">No graded attempts yet</div>'}
+            ${scores.length > 0 ? `<div style="display:flex; justify-content:space-between; margin-top:16px; padding-top:14px; border-top:1px solid rgba(124,58,237,0.1);"><div style="text-align:center;"><div style="font-size:18px; font-weight:700; color:#00D4FF;">${highest}%</div><div style="font-size:9px; color:#475569; letter-spacing:0.1em;">HIGHEST</div></div><div style="text-align:center;"><div style="font-size:18px; font-weight:700; color:#f59e0b;">${lowest}%</div><div style="font-size:9px; color:#475569; letter-spacing:0.1em;">LOWEST</div></div><div style="text-align:center;"><div style="font-size:18px; font-weight:700; color:#a78bfa;">${highest - lowest}</div><div style="font-size:9px; color:#475569; letter-spacing:0.1em;">RANGE</div></div></div>` : ''}
+        </div>
+
+        <div style="background:rgba(43,31,91,0.25); border:1px solid rgba(124,58,237,0.12); border-radius:14px; padding:22px; backdrop-filter:blur(6px);">
+            <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px; font-family:var(--font-display);">⚠️ Top Violation Types</div>
+            ${topVios.length === 0 ? '<div style="color:#475569; font-size:12px; text-align:center; padding:20px;">No violations recorded for this exam.</div>' : topVios.map(([type, count]) => {
+                const maxVio = topVios[0][1];
+                const pct = Math.round(count / maxVio * 100);
+                const colors = { NO_FACE: '#ef4444', MULTIPLE_FACES: '#ef4444', PHONE_DETECTED: '#dc2626', TAB_SWITCH: '#f59e0b', LOOKING_AWAY: '#f97316', NOISE_DETECTED: '#6366f1', COPY_PASTE_ATTEMPT: '#f59e0b', AI_PASTE_DETECTED: '#7C3AED', LIP_MOVEMENT: '#EC4899', BANNED_PROCESS_RUNNING: '#dc2626', MULTIPLE_DISPLAYS: '#f97316', NETWORK_ANOMALY: '#f59e0b', IDENTITY_MISMATCH: '#ef4444', UNNATURAL_TYPING: '#7C3AED', CURSOR_OUT_OF_BOUNDS: '#94a3b8', INACTIVITY_DETECTED: '#64748b', OBJECT_DETECTED: '#f97316' };
+                const c = colors[type] || '#6366f1';
+                return `<div style="margin-bottom:10px;"><div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;"><span style="color:var(--text-secondary);">${vioTypeLabels[type] || type}</span><span style="color:${c}; font-weight:700;">${count}</span></div><div style="height:6px; border-radius:3px; background:rgba(255,255,255,0.05);"><div style="height:100%; width:${pct}%; background:${c}; border-radius:3px; transition:width 0.5s;"></div></div></div>`;
+            }).join('')}
+        </div>
+    </div>
+
+    ${scores.length > 0 ? `<div style="background:rgba(43,31,91,0.25); border:1px solid rgba(124,58,237,0.12); border-radius:14px; padding:22px; margin-bottom:24px; backdrop-filter:blur(6px);">
+        <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:18px; font-family:var(--font-display);">📊 Score Distribution</div>
+        <div style="display:flex; gap:6px; align-items:flex-end; padding:0 4px;">${histogramBars}</div>
+    </div>` : ''}
+
+    <div style="background:rgba(43,31,91,0.25); border:1px solid rgba(124,58,237,0.12); border-radius:14px; padding:22px; backdrop-filter:blur(6px);">
+        <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px; font-family:var(--font-display);">👤 Student Performance</div>
+        ${attempts.length === 0 ? '<div style="color:#475569; text-align:center; padding:20px;">No attempts for this exam yet.</div>' : `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse;">
+            <thead><tr>
+                <th style="padding:12px; text-align:left; font-size:11px; letter-spacing:0.1em;">STUDENT</th>
+                <th style="padding:12px; text-align:left; font-size:11px; letter-spacing:0.1em;">SCORE</th>
+                <th style="padding:12px; text-align:left; font-size:11px; letter-spacing:0.1em;">STATUS</th>
+                <th style="padding:12px; text-align:left; font-size:11px; letter-spacing:0.1em;">VIOLATIONS</th>
+                <th style="padding:12px; text-align:left; font-size:11px; letter-spacing:0.1em;">CHEAT SCORE</th>
+            </tr></thead>
+            <tbody>${studentRows}</tbody>
+        </table></div>`}
+    </div>`;
+}
+
 
 async function deleteStudent(id) {
     if (!confirm(`Delete student "${id}"? This cannot be undone.`)) return;
@@ -1387,14 +1557,28 @@ function renderProctorReport(attempt) {
     document.getElementById('cheating-score-display').innerHTML = renderScoreCircle(score);
     const color = score <= 20 ? '#10b981' : score <= 50 ? '#f59e0b' : '#ef4444';
     document.getElementById('proctor-summary-line').innerHTML = `<span style="color:${color}; font-weight:600;">${violations.length} violations Â· Score: ${score}/100</span>`;
-    const weights = { NO_FACE: 8, MULTIPLE_FACES: 15, PHONE_DETECTED: 20, TAB_SWITCH: 12, LOOKING_AWAY: 4, NOISE_DETECTED: 2, COPY_PASTE_ATTEMPT: 10, AI_PASTE_DETECTED: 15, LIP_MOVEMENT: 6 };
-    const typeLabels = { NO_FACE: 'No Face', MULTIPLE_FACES: 'Multiple Faces', PHONE_DETECTED: 'Phone', TAB_SWITCH: 'Tab Switch', LOOKING_AWAY: 'Looking Away', NOISE_DETECTED: 'Voice Detected', COPY_PASTE_ATTEMPT: 'Copy/Paste', AI_PASTE_DETECTED: 'AI Paste', LIP_MOVEMENT: 'Lip Movement' };
+    const weights = {
+        NO_FACE: { pts: 8, max: 40 }, MULTIPLE_FACES: { pts: 15, max: 30 },
+        PHONE_DETECTED: { pts: 20, max: 40 }, TAB_SWITCH: { pts: 12, max: 36 },
+        LOOKING_AWAY: { pts: 4, max: 20 }, NOISE_DETECTED: { pts: 2, max: 10 },
+        COPY_PASTE_ATTEMPT: { pts: 10, max: 30 }, AI_PASTE_DETECTED: { pts: 15, max: 45 },
+        LIP_MOVEMENT: { pts: 6, max: 18 },
+        BANNED_PROCESS_RUNNING: { pts: 25, max: 50 },
+        MULTIPLE_DISPLAYS: { pts: 20, max: 40 },
+        NETWORK_ANOMALY: { pts: 18, max: 36 },
+        IDENTITY_MISMATCH: { pts: 30, max: 60 },
+        OBJECT_DETECTED: { pts: 12, max: 36 },
+        UNNATURAL_TYPING: { pts: 15, max: 30 },
+        CURSOR_OUT_OF_BOUNDS: { pts: 5, max: 15 },
+        INACTIVITY_DETECTED: { pts: 4, max: 12 }
+    };
+    const typeLabels = { NO_FACE: 'No Face Detected', MULTIPLE_FACES: 'Multiple Faces', PHONE_DETECTED: 'Phone Recognition', TAB_SWITCH: 'Tab Switch', LOOKING_AWAY: 'Looking Away', NOISE_DETECTED: 'Voice Detected', COPY_PASTE_ATTEMPT: 'Copy/Paste', AI_PASTE_DETECTED: 'AI Paste', LIP_MOVEMENT: 'Lip Movement', BANNED_PROCESS_RUNNING: 'Banned App Running', MULTIPLE_DISPLAYS: 'Multiple Displays', NETWORK_ANOMALY: 'Network Anomaly', IDENTITY_MISMATCH: 'Identity Mismatch', OBJECT_DETECTED: 'Object Detected', UNNATURAL_TYPING: 'Unnatural Typing', CURSOR_OUT_OF_BOUNDS: 'Cursor Out of Bounds', INACTIVITY_DETECTED: 'Inactivity Detected' };
     const counts = {}; violations.forEach(v => counts[v.type] = (counts[v.type] || 0) + 1);
     let rows = '';
-    for (const [type, count] of Object.entries(counts)) { const pts = Math.min(count * (weights[type] || 0), 40); rows += `<tr><td style="padding:8px;">${typeLabels[type] || type}</td><td style="padding:8px; font-weight:600;">${count}</td><td style="padding:8px; color:var(--danger);">+${pts}</td></tr>`; }
+    for (const [type, count] of Object.entries(counts)) { const w = weights[type]; const pts = w ? Math.min(count * w.pts, w.max) : 0; rows += `<tr><td style="padding:8px;">${typeLabels[type] || type}</td><td style="padding:8px; font-weight:600;">${count}</td><td style="padding:8px; color:var(--danger);">+${pts}</td></tr>`; }
     document.getElementById('vio-summary-body').innerHTML = rows || '<tr><td colspan="3" style="padding:8px; color:var(--text-muted);">No violations recorded</td></tr>';
     const grid = document.getElementById('vio-photo-grid');
-    const typeColors = { NO_FACE: '#ef4444', MULTIPLE_FACES: '#ef4444', PHONE_DETECTED: '#dc2626', TAB_SWITCH: '#f59e0b', LOOKING_AWAY: '#f97316', NOISE_DETECTED: '#6366f1', COPY_PASTE_ATTEMPT: '#f59e0b', AI_PASTE_DETECTED: '#7C3AED', LIP_MOVEMENT: '#EC4899' };
+    const typeColors = { NO_FACE: '#ef4444', MULTIPLE_FACES: '#ef4444', PHONE_DETECTED: '#dc2626', TAB_SWITCH: '#f59e0b', LOOKING_AWAY: '#f97316', NOISE_DETECTED: '#6366f1', COPY_PASTE_ATTEMPT: '#f59e0b', AI_PASTE_DETECTED: '#7C3AED', LIP_MOVEMENT: '#EC4899', BANNED_PROCESS_RUNNING: '#dc2626', MULTIPLE_DISPLAYS: '#f97316', NETWORK_ANOMALY: '#f59e0b', IDENTITY_MISMATCH: '#ef4444', OBJECT_DETECTED: '#f97316', UNNATURAL_TYPING: '#7C3AED', CURSOR_OUT_OF_BOUNDS: '#94a3b8', INACTIVITY_DETECTED: '#64748b' };
     const proofBadge = { screen: 'ðŸ–¥ï¸ Screen', camera: 'ðŸ“· Webcam', audio: 'ðŸŽ¤ Audio', none: 'â€”' };
     if (violations.length === 0) { grid.innerHTML = '<p style="color:#94a3b8; font-size:13px;">No proof captured.</p>'; }
     else {
@@ -1880,7 +2064,7 @@ async function showDeviceSelector(eid) {
         const isVirtual = isVirtualDevice(d.label);
         const opt = document.createElement('option');
         opt.value = d.deviceId;
-        opt.textContent = isVirtual ? `\u26a0\ufe0f ${d.label || 'Camera ' + (i + 1)} (VIRTUAL)` : `\u2705 ${d.label || 'Camera ' + (i + 1)}`;
+        opt.textContent = isVirtual ? `⚠️ ${d.label || 'Camera ' + (i + 1)} (VIRTUAL)` : `\u2705 ${d.label || 'Camera ' + (i + 1)}`;
         if (isVirtual) opt.style.color = '#ef4444';
         selVideo.appendChild(opt);
     });
@@ -1892,7 +2076,7 @@ async function showDeviceSelector(eid) {
         const isVirtual = isVirtualDevice(d.label);
         const opt = document.createElement('option');
         opt.value = d.deviceId;
-        opt.textContent = isVirtual ? `\u26a0\ufe0f ${d.label || 'Mic ' + (i + 1)} (VIRTUAL)` : `\u2705 ${d.label || 'Mic ' + (i + 1)}`;
+        opt.textContent = isVirtual ? `⚠️ ${d.label || 'Mic ' + (i + 1)} (VIRTUAL)` : `\u2705 ${d.label || 'Mic ' + (i + 1)}`;
         if (isVirtual) opt.style.color = '#ef4444';
         selAudio.appendChild(opt);
     });
@@ -2723,8 +2907,26 @@ function showVio(m) {
     if (isDisqualified) return;
     const vOverlay = document.getElementById('v-overlay');
     vOverlay.style.display = 'flex';
-    const displayMsg = m === 'NOISE_DETECTED' ? 'VOICE_DETECTED' : m;
-    document.getElementById('v-msg').innerText = displayMsg.replace(/_/g, ' ');
+    const displayNames = {
+        'NOISE_DETECTED': 'VOICE DETECTED',
+        'PHONE_DETECTED': 'PHONE RECOGNITION',
+        'OBJECT_DETECTED': 'OBJECT DETECTED',
+        'IDENTITY_MISMATCH': 'IDENTITY MISMATCH',
+        'BANNED_PROCESS_RUNNING': 'BANNED APP DETECTED',
+        'MULTIPLE_DISPLAYS': 'MULTIPLE DISPLAYS',
+        'NETWORK_ANOMALY': 'NETWORK ANOMALY',
+        'UNNATURAL_TYPING': 'UNNATURAL TYPING',
+        'CURSOR_OUT_OF_BOUNDS': 'CURSOR OUT OF BOUNDS',
+        'INACTIVITY_DETECTED': 'INACTIVITY DETECTED',
+        'NO_FACE': 'NO FACE DETECTED',
+        'MULTIPLE_FACES': 'MULTIPLE FACES',
+        'LOOKING_AWAY': 'LOOKING AWAY',
+        'COPY_PASTE_ATTEMPT': 'COPY PASTE ATTEMPT',
+        'AI_PASTE_DETECTED': 'AI PASTE DETECTED',
+        'LIP_MOVEMENT': 'LIP MOVEMENT',
+        'TAB_SWITCH': 'TAB SWITCH'
+    };
+    document.getElementById('v-msg').innerText = displayNames[m] || m.replace(/_/g, ' ');
 
     if (vioTimeout) clearTimeout(vioTimeout);
     vioTimeout = setTimeout(() => {
@@ -2922,6 +3124,5 @@ document.addEventListener('keydown', (e) => {
         }
     }
 });
-
 
 

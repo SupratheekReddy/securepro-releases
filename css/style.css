@@ -1,10 +1,11 @@
 /* ============================================================
-   SECUREPRO — NEXUS COMMAND INTERFACE
-   Professional Dark Intelligence UI
+   SECUREPRO — PREMIUM DESIGN SYSTEM
+   Merged: Nexus Command Interface + Lucy Auth Theme
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Montserrat:wght@500;600;700;800&family=Rajdhani:wght@500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
+    /* Core Dark Theme */
     --bg-base: #030A14;
     --bg-surface: #070F1C;
     --bg-elevated: #0C1628;
@@ -39,9 +40,18 @@
     --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.5);
     --shadow-glow: 0 0 30px rgba(0, 212, 255, 0.12);
     --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    --primary: #0EA5E9;
+    --primary: #9EE9FF;
+    --primary-hover: #7FDEFC;
     --dark: #030A14;
     --bg: #070F1C;
+
+    /* Lucy Auth Theme */
+    --auth-bg-royal: #3E2B8B;
+    --card-bg-translucent: rgba(43, 31, 91, 0.45);
+    --window-header: #ffffff;
+    --text-white: #ffffff;
+    --text-muted-auth: rgba(255, 255, 255, 0.6);
+    --border-auth: rgba(255, 255, 255, 0.1);
 }
 
 *,
@@ -54,9 +64,9 @@
 body {
     font-family: var(--font-body);
     margin: 0;
-    background-color: var(--bg-base);
-    background-image: radial-gradient(circle, rgba(0, 212, 255, 0.06) 1px, transparent 1px);
-    background-size: 30px 30px;
+    background-color: #0a0520;
+    background-image: radial-gradient(circle, rgba(124, 58, 237, 0.04) 1px, transparent 1px);
+    background-size: 28px 28px;
     height: 100vh;
     overflow: hidden;
     display: flex;
@@ -169,13 +179,13 @@ button {
     overflow: hidden
 }
 
-button:not(.secondary):not(.danger):not(.ai-btn) {
+button:not(.secondary):not(.danger):not(.ai-btn):not(.lucy-btn):not(.lucy-secondary-btn):not(.lucy-pill):not(.auth-tab) {
     background: linear-gradient(135deg, #0EA5E9 0%, #7C3AED 100%);
     color: white;
     box-shadow: 0 4px 20px rgba(14, 165, 233, 0.2)
 }
 
-button:not(.secondary):not(.danger):not(.ai-btn):hover {
+button:not(.secondary):not(.danger):not(.ai-btn):not(.lucy-btn):not(.lucy-secondary-btn):not(.lucy-pill):not(.auth-tab):hover {
     transform: translateY(-1px);
     box-shadow: 0 6px 28px rgba(14, 165, 233, 0.35)
 }
@@ -226,107 +236,797 @@ button:disabled {
     transform: none !important
 }
 
+/* ============================================================
+   PREMIUM AUTH SCREEN — Lucy Split-Panel Design
+   ============================================================ */
 .screen {
     position: fixed;
     inset: 0;
-    background: var(--bg-base);
     z-index: 50;
     display: none;
     align-items: center;
     justify-content: center
 }
 
-.auth-card {
-    background: rgba(7, 15, 28, 0.9);
-    width: 440px;
-    padding: 44px 40px;
-    border-radius: var(--radius-xl);
-    text-align: center;
-    border: 1px solid var(--border-accent);
-    box-shadow: 0 0 80px rgba(0, 212, 255, 0.06), 0 30px 60px rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(24px);
+#auth-screen {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    background: linear-gradient(135deg, #1a1145 0%, #2d1b69 30%, #3E2B8B 60%, #1a1145 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    overflow: hidden;
+    z-index: 50;
+}
+
+.browser-frame {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    border-radius: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     position: relative;
-    animation: fadeInUp 0.5s ease
 }
 
-.auth-card::before,
-.auth-card::after {
-    content: '';
+/* ============================================================
+   ANIMATED GEOMETRIC SHAPES
+   ============================================================ */
+.geo-shapes {
     position: absolute;
-    width: 20px;
-    height: 20px;
-    border-color: var(--accent);
-    border-style: solid;
-    opacity: 0.6
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    overflow: hidden;
 }
 
-.auth-card::before {
-    top: 12px;
-    left: 12px;
-    border-width: 2px 0 0 2px;
-    border-radius: 4px 0 0 0
+.geo-hex {
+    position: absolute;
+    border: 1.5px solid rgba(158, 233, 255, 0.12);
+    border-radius: 4px;
 }
 
-.auth-card::after {
-    bottom: 12px;
-    right: 12px;
-    border-width: 0 2px 2px 0;
-    border-radius: 0 0 4px 0
+.geo-hex-1 {
+    width: 120px;
+    height: 120px;
+    top: 8%;
+    left: 5%;
+    border-color: rgba(158, 233, 255, 0.1);
 }
 
-.auth-logo {
-    font-family: var(--font-display);
+.geo-hex-2 {
+    width: 80px;
+    height: 80px;
+    top: 65%;
+    left: 20%;
+    border-color: rgba(124, 58, 237, 0.15);
+}
+
+.geo-hex-3 {
+    width: 60px;
+    height: 60px;
+    top: 20%;
+    left: 40%;
+    border-color: rgba(0, 212, 255, 0.1);
+}
+
+.geo-ring {
+    position: absolute;
+    border: 1.5px solid rgba(158, 233, 255, 0.08);
+    border-radius: 50%;
+}
+
+.geo-ring-1 {
+    width: 200px;
+    height: 200px;
+    top: -40px;
+    left: 15%;
+    border-color: rgba(124, 58, 237, 0.1);
+}
+
+.geo-ring-2 {
+    width: 140px;
+    height: 140px;
+    bottom: 10%;
+    left: 35%;
+    border-color: rgba(0, 212, 255, 0.07);
+}
+
+.geo-dot {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: rgba(158, 233, 255, 0.35);
+}
+
+.geo-dot-1 { top: 15%; left: 30%; background: rgba(158, 233, 255, 0.4); }
+.geo-dot-2 { top: 50%; left: 8%; background: rgba(124, 58, 237, 0.5); width: 5px; height: 5px; }
+.geo-dot-3 { top: 75%; left: 42%; background: rgba(0, 212, 255, 0.35); width: 3px; height: 3px; }
+.geo-dot-4 { top: 30%; left: 48%; background: rgba(255, 255, 255, 0.2); width: 3px; height: 3px; }
+
+.geo-line {
+    position: absolute;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(158, 233, 255, 0.15), transparent);
+}
+
+.geo-line-1 {
+    width: 200px;
+    top: 40%;
+    left: 2%;
+    transform: rotate(-15deg);
+}
+
+.geo-line-2 {
+    width: 150px;
+    top: 80%;
+    left: 25%;
+    transform: rotate(20deg);
+    background: linear-gradient(90deg, transparent, rgba(124, 58, 237, 0.12), transparent);
+}
+
+/* ============================================================
+   AUTH STATS BAR
+   ============================================================ */
+.auth-stats {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 18px 28px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    margin-bottom: 35px;
+    position: relative;
+    z-index: 2;
+}
+
+.auth-stat {
+    flex: 1;
+    text-align: center;
+}
+
+.auth-stat-num {
+    font-size: 22px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: -0.02em;
+    font-family: 'Inter', sans-serif;
+    line-height: 1;
+    margin-bottom: 4px;
+    background: linear-gradient(135deg, #9EE9FF, #ffffff);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.auth-stat-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.auth-stat-divider {
+    width: 1px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 0 8px;
+    flex-shrink: 0;
+}
+
+/* (browser-frame and frame-header styles now in main block above) */
+
+.body-split {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Animated background blobs */
+.blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.35;
+    animation: blobFloat 8s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.blob-1 {
+    width: 600px;
+    height: 600px;
+    background: #6C3CE0;
+    top: -200px;
+    left: -100px;
+}
+
+.blob-2 {
+    width: 500px;
+    height: 500px;
+    background: #00B4D8;
+    bottom: -200px;
+    right: -100px;
+    animation-delay: -4s;
+}
+
+@keyframes blobFloat {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(30px, -20px) scale(1.05); }
+    66% { transform: translate(-15px, 25px) scale(0.95); }
+}
+
+.split-left {
+    flex: 1.1;
+    padding: 80px 60px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    position: relative;
+    z-index: 5;
+}
+
+.split-right {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-right: 80px;
+    z-index: 5;
+}
+
+/* auth-asset-img removed — replaced by animated geo-shapes */
+
+/* Lucy Branding */
+.lucy-logo-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 15px;
+    margin-bottom: 45px;
+    position: relative;
+    z-index: 2;
+}
+
+.lucy-logo-icon {
+    width: 64px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    filter: drop-shadow(0 0 15px rgba(158, 233, 255, 0.4));
+}
+
+.shield-logo {
+    font-size: 48px;
+    background: linear-gradient(to bottom, #9EE9FF, #ffffff);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 10px rgba(158, 233, 255, 0.5));
+}
+
+.lucy-brand-text {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    position: relative;
+    z-index: 2;
+}
+
+.lucy-trademark {
+    font-size: 14px;
+    vertical-align: super;
+}
+
+.lucy-sub-brand {
+    font-size: 15px;
+    font-weight: 400;
+    opacity: 0.7;
+    margin-top: 5px;
+}
+
+.lucy-headline {
+    font-size: 34px;
+    font-weight: 600;
+    line-height: 1.25;
+    max-width: 600px;
+    margin-bottom: 45px;
+    text-align: center;
+    align-self: center;
+    position: relative;
+    z-index: 2;
+}
+
+.lucy-options-row {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
+}
+
+.lucy-pill {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: 0.3s;
+    color: white !important;
+    box-shadow: none !important;
+    font-family: 'Inter', sans-serif;
+    width: auto;
+}
+
+.lucy-pill:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+    transform: translateY(-2px);
+}
+
+/* Premium Glassmorphism Card */
+.lucy-card {
+    background: var(--card-bg-translucent);
+    backdrop-filter: blur(20px);
+    width: 100%;
+    max-width: 500px;
+    border-radius: 24px;
+    padding: 55px 45px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.3);
+}
+
+.lucy-card-title {
     font-size: 30px;
     font-weight: 700;
-    color: var(--accent);
-    text-shadow: 0 0 30px rgba(0, 212, 255, 0.4);
-    letter-spacing: 0.1em;
-    margin-bottom: 4px
+    color: white;
+    margin-bottom: 35px;
+    font-family: 'Inter', sans-serif;
 }
 
-.auth-subtitle {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-muted);
-    letter-spacing: 0.3em;
-    text-transform: uppercase;
-    margin-bottom: 28px
-}
-
-.auth-tabs {
-    display: flex;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 3px;
+/* Auth Form Styles */
+.lucy-field {
     margin-bottom: 24px;
-    gap: 3px
 }
 
-.auth-tab {
-    flex: 1;
-    padding: 9px;
-    border-radius: 7px;
-    font-family: var(--font-display);
+.lucy-label {
     font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    cursor: pointer;
-    transition: var(--transition);
-    color: var(--text-muted);
-    border: none;
+    color: var(--text-muted-auth);
+    margin-bottom: 10px;
+    display: block;
+    font-weight: 500;
+    font-family: 'Inter', sans-serif;
+}
+
+.lucy-input-wrap {
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    transition: 0.3s;
+}
+
+.lucy-input-wrap:focus-within {
+    border-color: var(--primary);
+    background: rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 0 3px rgba(158, 233, 255, 0.1);
+}
+
+.lucy-input {
+    width: 100%;
+    padding: 14px 18px;
     background: transparent;
-    width: auto
+    border: none;
+    color: white;
+    font-size: 15px;
+    outline: none;
+    margin-bottom: 0;
+    font-family: 'Inter', sans-serif;
 }
 
-.auth-tab.active {
-    background: var(--accent);
-    color: var(--bg-base);
-    box-shadow: 0 2px 12px rgba(0, 212, 255, 0.3)
+.lucy-input::placeholder {
+    color: rgba(255, 255, 255, 0.3);
 }
 
-.auth-tab:hover:not(.active) {
-    color: var(--text-primary)
+.lucy-btn {
+    width: 100%;
+    background: var(--primary) !important;
+    color: #1a1440 !important;
+    border: none !important;
+    padding: 15px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: 0.3s;
+    margin-top: 10px;
+    box-shadow: none !important;
+    font-family: 'Inter', sans-serif;
+    letter-spacing: 0.02em;
+}
+
+.lucy-btn:hover {
+    background: var(--primary-hover) !important;
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(158, 233, 255, 0.3) !important;
+}
+
+.lucy-secondary-btn {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: white !important;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 12px;
+    box-shadow: none !important;
+    font-family: 'Inter', sans-serif;
+    transition: 0.3s;
+}
+
+.lucy-secondary-btn:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+    transform: translateY(-1px);
+}
+
+.auth-options {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.auth-link {
+    text-decoration: none;
+    transition: 0.2s;
+}
+
+.auth-link:hover {
+    color: var(--primary) !important;
+}
+
+@keyframes scanLine {
+    0% { top: -2px; }
+    100% { top: 100%; }
+}
+
+/* ============================================================
+   ADMIN DASHBOARD — PURPLE THEME MATCHING AUTH
+   ============================================================ */
+
+#admin-screen {
+    background: linear-gradient(150deg, #12082B 0%, #1a1145 40%, #1e1350 70%, #0f0825 100%);
+    background-attachment: fixed;
+    position: relative;
+}
+
+#admin-screen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, rgba(124, 58, 237, 0.04) 1px, transparent 1px);
+    background-size: 28px 28px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+#admin-screen > .sidebar,
+#admin-screen > .content {
+    position: relative;
+    z-index: 1;
+}
+
+.sidebar {
+    width: 240px;
+    background: linear-gradient(180deg, #0f0628 0%, #150a35 50%, #0f0628 100%);
+    color: white;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid rgba(124, 58, 237, 0.15);
+    flex-shrink: 0
+}
+
+.sidebar-header {
+    padding: 24px 20px 20px;
+    border-bottom: 1px solid rgba(124, 58, 237, 0.15)
+}
+
+.sidebar-logo-icon {
+    width: 32px;
+    height: 32px;
+    background: rgba(124, 58, 237, 0.2);
+    border: 1px solid rgba(124, 58, 237, 0.35);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--accent)
+}
+
+.sidebar-nav {
+    flex: 1;
+    padding: 12px 10px;
+    overflow-y: auto
+}
+
+.nav-item {
+    padding: 10px 12px;
+    margin-bottom: 2px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.35);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    transition: var(--transition);
+    border-left: 3px solid transparent
+}
+
+.nav-item:hover {
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(124, 58, 237, 0.08)
+}
+
+.nav-item.active {
+    color: var(--accent);
+    background: rgba(124, 58, 237, 0.15);
+    border-left-color: var(--accent);
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.1)
+}
+
+.sidebar-footer {
+    padding: 12px 10px;
+    border-top: 1px solid rgba(124, 58, 237, 0.12)
+}
+
+.content {
+    flex: 1;
+    background: transparent;
+    padding: 32px 36px;
+    overflow-y: auto
+}
+
+/* Glassmorphic Cards matching auth */
+.card {
+    background: rgba(43, 31, 91, 0.25);
+    border: 1px solid rgba(124, 58, 237, 0.12);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    backdrop-filter: blur(8px);
+}
+
+.card:hover {
+    border-color: rgba(124, 58, 237, 0.25);
+    box-shadow: 0 8px 32px rgba(124, 58, 237, 0.08);
+}
+
+/* Result cards purple theme */
+.result-card {
+    background: rgba(43, 31, 91, 0.2);
+    border: 1px solid rgba(124, 58, 237, 0.1);
+}
+
+.result-card:hover {
+    border-color: rgba(124, 58, 237, 0.25);
+    background: rgba(43, 31, 91, 0.35);
+    box-shadow: 0 8px 32px rgba(124, 58, 237, 0.1);
+}
+
+/* Table purple accents */
+thead tr {
+    background: rgba(124, 58, 237, 0.08);
+    border-bottom: 1px solid rgba(124, 58, 237, 0.2)
+}
+
+thead th {
+    color: #a78bfa;
+}
+
+tbody td {
+    border-bottom: 1px solid rgba(124, 58, 237, 0.08);
+}
+
+tbody tr:hover td {
+    background: rgba(124, 58, 237, 0.04);
+}
+
+/* Input fields — purple glow */
+#admin-screen input,
+#admin-screen select,
+#admin-screen textarea {
+    background: rgba(43, 31, 91, 0.2);
+    border: 1px solid rgba(124, 58, 237, 0.15);
+}
+
+#admin-screen input:focus,
+#admin-screen select:focus,
+#admin-screen textarea:focus {
+    border-color: rgba(158, 233, 255, 0.4);
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+    background: rgba(43, 31, 91, 0.3);
+}
+
+/* Panel header accent — gradient purple */
+.panel-header {
+    border-bottom: 1px solid rgba(124, 58, 237, 0.12)
+}
+
+.panel-header-accent {
+    background: linear-gradient(180deg, var(--accent), #7C3AED) !important;
+}
+
+/* Proctor header */
+.proctor-header {
+    background: rgba(124, 58, 237, 0.06);
+    border: 1px solid rgba(124, 58, 237, 0.15);
+}
+
+.proctor-header:hover {
+    background: rgba(124, 58, 237, 0.12);
+}
+
+/* Answer blocks */
+.answer-block {
+    background: rgba(43, 31, 91, 0.2);
+    border: 1px solid rgba(124, 58, 237, 0.1);
+}
+
+.answer-block:hover {
+    border-color: rgba(124, 58, 237, 0.2);
+}
+
+/* AI feedback */
+.ai-feedback-box {
+    background: rgba(124, 58, 237, 0.1);
+    border-left: 3px solid #7C3AED;
+}
+
+/* ============================================================
+   STUDENT DASHBOARD — PURPLE THEME MATCHING AUTH
+   ============================================================ */
+
+#student-screen {
+    background: linear-gradient(150deg, #12082B 0%, #1a1145 40%, #1e1350 70%, #0f0825 100%) !important;
+    position: relative;
+}
+
+#student-screen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, rgba(124, 58, 237, 0.04) 1px, transparent 1px);
+    background-size: 28px 28px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+#student-screen > div {
+    position: relative;
+    z-index: 1;
+}
+
+/* Student tabs — purple theme */
+#student-screen .auth-tabs {
+    background: rgba(43, 31, 91, 0.3);
+    border: 1px solid rgba(124, 58, 237, 0.15);
+}
+
+#student-screen .auth-tab {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+#student-screen .auth-tab.active {
+    background: linear-gradient(135deg, #7C3AED, #6366f1);
+    color: white;
+    box-shadow: 0 2px 12px rgba(124, 58, 237, 0.35);
+}
+
+#student-screen .auth-tab:hover:not(.active) {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Student result cards */
+#student-screen .result-card {
+    background: rgba(43, 31, 91, 0.25);
+    border: 1px solid rgba(124, 58, 237, 0.1);
+    backdrop-filter: blur(6px);
+}
+
+#student-screen .result-card:hover {
+    border-color: rgba(124, 58, 237, 0.3);
+    background: rgba(43, 31, 91, 0.4);
+    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.12);
+}
+
+/* Student header border */
+#student-screen > div > div:first-child {
+    border-bottom-color: rgba(124, 58, 237, 0.15) !important;
+}
+
+/* ============================================================
+   SCROLLBAR — PURPLE VARIANT
+   ============================================================ */
+.content::-webkit-scrollbar-thumb,
+#student-screen::-webkit-scrollbar-thumb {
+    background: rgba(124, 58, 237, 0.2);
+}
+
+.content::-webkit-scrollbar-thumb:hover,
+#student-screen::-webkit-scrollbar-thumb:hover {
+    background: rgba(124, 58, 237, 0.35);
+}
+
+/* ============================================================
+   EXAM INTERFACE — DEEP PURPLE
+   ============================================================ */
+#exam-interface {
+    background: linear-gradient(150deg, #0a0520 0%, #12082B 100%) !important;
+}
+
+.exam-sidebar {
+    background: linear-gradient(180deg, #0a0520, #110830) !important;
+    border-right-color: rgba(124, 58, 237, 0.12) !important;
+}
+
+.exam-topbar {
+    background: rgba(10, 5, 32, 0.95) !important;
+    border-bottom-color: rgba(124, 58, 237, 0.1) !important;
+    backdrop-filter: blur(10px);
+}
+
+.q-block {
+    background: rgba(43, 31, 91, 0.15);
+    border: 1px solid rgba(124, 58, 237, 0.1);
+}
+
+.q-block:hover {
+    border-color: rgba(124, 58, 237, 0.2);
+}
+
+/* ============================================================
+   DEVICE SELECTOR — PURPLE MODAL
+   ============================================================ */
+.device-modal {
+    background: linear-gradient(150deg, #1a1145, #2d1b69) !important;
+    border: 1px solid rgba(124, 58, 237, 0.25) !important;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.7), 0 0 80px rgba(124, 58, 237, 0.08) !important;
+}
+
+/* ============================================================
+   RECEIPT — PURPLE
+   ============================================================ */
+#receipt-screen {
+    background: linear-gradient(150deg, #0a0520, #12082B) !important;
+}
+
+.admin-link {
+    margin-top: 18px;
+    font-size: 12px;
+    color: var(--text-muted)
 }
 
 .field-label {
@@ -339,12 +1039,6 @@ button:disabled {
     text-transform: uppercase;
     margin-bottom: 5px;
     margin-top: 2px
-}
-
-.admin-link {
-    margin-top: 18px;
-    font-size: 12px;
-    color: var(--text-muted)
 }
 
 .admin-link span {
@@ -391,45 +1085,18 @@ video {
     display: none
 }
 
-.sidebar {
-    width: 240px;
-    background: #050D1A;
-    color: white;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    border-right: 1px solid var(--border-light);
-    flex-shrink: 0
-}
-
-.sidebar-header {
-    padding: 24px 20px 20px;
-    border-bottom: 1px solid var(--border-light)
-}
+/* (sidebar, nav-item, content — primary styles in purple theme block above) */
 
 .sidebar-logo {
     font-family: var(--font-display);
     font-size: 22px;
     font-weight: 700;
     color: var(--accent);
-    text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+    text-shadow: 0 0 20px rgba(124, 58, 237, 0.4);
     letter-spacing: 0.08em;
     display: flex;
     align-items: center;
     gap: 10px
-}
-
-.sidebar-logo-icon {
-    width: 32px;
-    height: 32px;
-    background: var(--accent-dim);
-    border: 1px solid var(--border-accent);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    color: var(--accent)
 }
 
 .sidebar-version {
@@ -440,64 +1107,18 @@ video {
     margin-top: 4px
 }
 
-.sidebar-nav {
-    flex: 1;
-    padding: 12px 10px;
-    overflow-y: auto
-}
-
 .nav-section-label {
     font-family: var(--font-mono);
     font-size: 9px;
-    color: var(--text-muted);
+    color: rgba(255, 255, 255, 0.25);
     letter-spacing: 0.2em;
     text-transform: uppercase;
     padding: 12px 10px 6px
 }
 
-.nav-item {
-    padding: 10px 12px;
-    margin-bottom: 2px;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-family: var(--font-display);
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    transition: var(--transition);
-    border-left: 3px solid transparent
-}
-
 .nav-item i {
     width: 16px;
     font-size: 13px
-}
-
-.nav-item:hover {
-    color: var(--text-secondary);
-    background: rgba(255, 255, 255, 0.03)
-}
-
-.nav-item.active {
-    color: var(--accent);
-    background: var(--accent-dim);
-    border-left-color: var(--accent)
-}
-
-.sidebar-footer {
-    padding: 12px 10px;
-    border-top: 1px solid var(--border-light)
-}
-
-.content {
-    flex: 1;
-    background: var(--bg-surface);
-    padding: 32px 36px;
-    overflow-y: auto
 }
 
 .panel {
@@ -515,13 +1136,11 @@ video {
     gap: 12px;
     margin-bottom: 24px;
     padding-bottom: 20px;
-    border-bottom: 1px solid var(--border-light)
 }
 
 .panel-header-accent {
     width: 4px;
     height: 24px;
-    background: var(--accent);
     border-radius: 2px;
     flex-shrink: 0
 }
@@ -622,6 +1241,9 @@ tbody tr:hover td {
     display: none
 }
 
+/* ============================================================
+   EXAM INTERFACE
+   ============================================================ */
 #exam-interface {
     display: none;
     position: fixed;
@@ -743,18 +1365,6 @@ tbody tr:hover td {
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-@keyframes slideInRight {
-    from {
-        opacity: 0;
-        transform: translateX(50px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
-
 .violation-overlay h1 {
     font-family: var(--font-display);
     font-size: 24px;
@@ -868,6 +1478,43 @@ tbody tr:hover td {
     overflow-y: auto
 }
 
+.auth-tabs {
+    display: flex;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 3px;
+    margin-bottom: 24px;
+    gap: 3px
+}
+
+.auth-tab {
+    flex: 1;
+    padding: 9px;
+    border-radius: 7px;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: var(--transition);
+    color: var(--text-muted);
+    border: none;
+    background: transparent;
+    width: auto;
+    box-shadow: none;
+}
+
+.auth-tab.active {
+    background: var(--accent);
+    color: var(--bg-base);
+    box-shadow: 0 2px 12px rgba(0, 212, 255, 0.3)
+}
+
+.auth-tab:hover:not(.active) {
+    color: var(--text-primary)
+}
+
 #device-selector {
     background: rgba(0, 0, 0, 0.85);
     backdrop-filter: blur(12px)
@@ -892,19 +1539,19 @@ tbody tr:hover td {
 }
 
 .toast {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-accent);
+    background: rgba(30, 19, 80, 0.9);
+    border: 1px solid rgba(124, 58, 237, 0.2);
     border-left: 3px solid var(--success);
     padding: 13px 18px;
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-card), var(--shadow-glow);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(124, 58, 237, 0.08);
     margin-bottom: 10px;
     color: var(--text-primary);
     font-family: var(--font-body);
     font-size: 13px;
     min-width: 280px;
     animation: slideInRight 0.3s ease;
-    backdrop-filter: blur(12px);
+    backdrop-filter: blur(16px);
     display: flex;
     gap: 10px
 }
@@ -941,12 +1588,14 @@ tbody tr:hover td {
     animation: riskBlink 1.5s ease infinite
 }
 
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
 @keyframes fadeInUp {
     from {
         opacity: 0;
         transform: translateY(16px)
     }
-
     to {
         opacity: 1;
         transform: translateY(0)
@@ -958,7 +1607,6 @@ tbody tr:hover td {
         opacity: 0;
         transform: translateX(20px)
     }
-
     to {
         opacity: 1;
         transform: translateX(0)
@@ -966,95 +1614,41 @@ tbody tr:hover td {
 }
 
 @keyframes scanline {
-    from {
-        top: -2px
-    }
-
-    to {
-        top: 100%
-    }
+    from { top: -2px }
+    to { top: 100% }
 }
 
 @keyframes blink {
-
-    0%,
-    100% {
-        opacity: 1
-    }
-
-    50% {
-        opacity: 0.2
-    }
+    0%, 100% { opacity: 1 }
+    50% { opacity: 0.2 }
 }
 
 @keyframes glowPulse {
-
-    0%,
-    100% {
-        box-shadow: 0 0 8px var(--success)
-    }
-
-    50% {
-        box-shadow: 0 0 25px var(--success), 0 0 50px rgba(0, 255, 157, 0.2)
-    }
+    0%, 100% { box-shadow: 0 0 8px var(--success) }
+    50% { box-shadow: 0 0 25px var(--success), 0 0 50px rgba(0, 255, 157, 0.2) }
 }
 
 @keyframes borderPulse {
-
-    0%,
-    100% {
-        box-shadow: 0 0 10px rgba(255, 45, 85, 0.2)
-    }
-
-    50% {
-        box-shadow: 0 0 25px rgba(255, 45, 85, 0.5)
-    }
+    0%, 100% { box-shadow: 0 0 10px rgba(255, 45, 85, 0.2) }
+    50% { box-shadow: 0 0 25px rgba(255, 45, 85, 0.5) }
 }
 
 @keyframes vioFlash {
-    0% {
-        opacity: 0
-    }
-
-    15% {
-        opacity: 1
-    }
-
-    30% {
-        opacity: 0.8
-    }
-
-    45% {
-        opacity: 1
-    }
-
-    100% {
-        opacity: 1
-    }
+    0% { opacity: 0 }
+    15% { opacity: 1 }
+    30% { opacity: 0.8 }
+    45% { opacity: 1 }
+    100% { opacity: 1 }
 }
 
 @keyframes violationPulse {
-
-    0%,
-    100% {
-        transform: scale(1)
-    }
-
-    50% {
-        transform: scale(1.1)
-    }
+    0%, 100% { transform: scale(1) }
+    50% { transform: scale(1.1) }
 }
 
 @keyframes riskBlink {
-
-    0%,
-    100% {
-        opacity: 1
-    }
-
-    50% {
-        opacity: 0.6
-    }
+    0%, 100% { opacity: 1 }
+    50% { opacity: 0.6 }
 }
 
 #watermark-overlay {
@@ -1066,4 +1660,620 @@ tbody tr:hover td {
     display: flex;
     flex-wrap: wrap;
     transform: rotate(-30deg);
+}
+
+/* ============================================================
+   RESPONSIVE — Auth Screen
+   ============================================================ */
+@media (max-width: 1100px) {
+    .split-left {
+        padding: 40px 30px;
+    }
+    .split-right {
+        padding-right: 30px;
+    }
+    .lucy-headline {
+        font-size: 26px;
+    }
+    .lucy-brand-text {
+        font-size: 32px;
+    }
+    .lucy-card {
+        padding: 40px 30px;
+    }
+}
+
+@media (max-width: 800px) {
+    .body-split {
+        flex-direction: column;
+    }
+    .split-left {
+        flex: none;
+        padding: 30px 20px 10px;
+    }
+    .split-right {
+        flex: 1;
+        padding: 10px 20px 30px;
+    }
+    .geo-shapes {
+        display: none;
+    }
+    .lucy-headline {
+        font-size: 22px;
+        margin-bottom: 20px;
+    }
+    .lucy-logo-wrap {
+        margin-bottom: 20px;
+    }
+    .lucy-options-row {
+        display: none;
+    }
+    .auth-stats {
+        padding: 12px 16px;
+        gap: 0;
+    }
+    .auth-stat-num {
+        font-size: 16px;
+    }
+}
+
+/* ============================================================
+   MODERN ANIMATIONS & MICRO-INTERACTIONS
+   ============================================================ */
+
+/* --- Floating Particles on Auth Background --- */
+#auth-screen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: 
+        radial-gradient(2px 2px at 20% 30%, rgba(158, 233, 255, 0.3), transparent),
+        radial-gradient(2px 2px at 40% 70%, rgba(124, 58, 237, 0.25), transparent),
+        radial-gradient(1.5px 1.5px at 60% 20%, rgba(255, 255, 255, 0.2), transparent),
+        radial-gradient(2px 2px at 80% 60%, rgba(0, 212, 255, 0.2), transparent),
+        radial-gradient(1px 1px at 10% 80%, rgba(158, 233, 255, 0.15), transparent),
+        radial-gradient(1.5px 1.5px at 90% 40%, rgba(124, 58, 237, 0.15), transparent);
+    background-size: 400px 400px;
+    animation: particleDrift 20s linear infinite;
+    pointer-events: none;
+    z-index: 1;
+}
+
+@keyframes particleDrift {
+    0% { transform: translate(0, 0); }
+    25% { transform: translate(-20px, -30px); }
+    50% { transform: translate(15px, -15px); }
+    75% { transform: translate(-10px, 20px); }
+    100% { transform: translate(0, 0); }
+}
+
+/* --- Panel entrance animations --- */
+.panel.active {
+    animation: panelEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes panelEntrance {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.98);
+        filter: blur(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        filter: blur(0px);
+    }
+}
+
+/* --- Sidebar nav items --- */
+.nav-item {
+    position: relative;
+    overflow: hidden;
+}
+
+.nav-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.06), transparent);
+    transition: left 0.6s ease;
+}
+
+.nav-item:hover::before {
+    left: 100%;
+}
+
+.nav-item.active {
+    animation: navGlow 0.4s ease;
+}
+
+@keyframes navGlow {
+    0% { box-shadow: none; }
+    50% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.15); }
+    100% { box-shadow: none; }
+}
+
+/* --- Card hover effects --- */
+.card {
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+}
+
+.card:hover {
+    border-color: rgba(0, 212, 255, 0.15);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 212, 255, 0.08);
+    transform: translateY(-2px);
+}
+
+/* --- Result card animations --- */
+.result-card {
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.result-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.04), transparent);
+    transition: left 0.5s ease;
+}
+
+.result-card:hover::after {
+    left: 150%;
+}
+
+.result-card:hover {
+    border-color: var(--border-accent);
+    background: var(--bg-card-hover);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(0, 212, 255, 0.05);
+}
+
+/* --- Answer block animations --- */
+.answer-block {
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.answer-block:hover {
+    border-color: rgba(0, 212, 255, 0.12);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* --- Button ripple effect --- */
+button::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(255, 255, 255, 0.15), transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+}
+
+button:hover::after {
+    opacity: 1;
+}
+
+/* --- Enhanced badge animations --- */
+.badge {
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.badge:hover {
+    transform: scale(1.05);
+}
+
+.badge.pass {
+    animation: badgePulseGreen 3s ease-in-out infinite;
+}
+
+.badge.fail {
+    animation: badgePulseRed 2.5s ease-in-out infinite;
+}
+
+@keyframes badgePulseGreen {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0); }
+    50% { box-shadow: 0 0 12px 2px rgba(0, 255, 157, 0.15); }
+}
+
+@keyframes badgePulseRed {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 45, 85, 0); }
+    50% { box-shadow: 0 0 12px 2px rgba(255, 45, 85, 0.15); }
+}
+
+/* --- Gradient border on focus inputs --- */
+input:focus,
+select:focus,
+textarea:focus {
+    animation: inputGlow 0.4s ease;
+}
+
+@keyframes inputGlow {
+    0% { box-shadow: 0 0 0 0 rgba(0, 212, 255, 0); }
+    50% { box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.12); }
+    100% { box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08); }
+}
+
+/* --- Table row entrance stagger animation --- */
+tbody tr {
+    animation: rowSlideIn 0.3s ease;
+    animation-fill-mode: both;
+}
+
+tbody tr:nth-child(1) { animation-delay: 0.02s; }
+tbody tr:nth-child(2) { animation-delay: 0.04s; }
+tbody tr:nth-child(3) { animation-delay: 0.06s; }
+tbody tr:nth-child(4) { animation-delay: 0.08s; }
+tbody tr:nth-child(5) { animation-delay: 0.10s; }
+tbody tr:nth-child(6) { animation-delay: 0.12s; }
+tbody tr:nth-child(7) { animation-delay: 0.14s; }
+tbody tr:nth-child(8) { animation-delay: 0.16s; }
+tbody tr:nth-child(9) { animation-delay: 0.18s; }
+tbody tr:nth-child(10) { animation-delay: 0.20s; }
+
+@keyframes rowSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* --- MCQ option hover animation --- */
+.mcq-option {
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mcq-option:hover {
+    transform: translateX(6px);
+    border-color: var(--border-accent);
+    box-shadow: 0 2px 12px rgba(0, 212, 255, 0.08);
+}
+
+/* --- Enhanced exam sidebar animation --- */
+.exam-cam-wrap.monitoring {
+    animation: monitorGlow 3s ease-in-out infinite;
+}
+
+@keyframes monitorGlow {
+    0%, 100% { box-shadow: 0 0 8px rgba(0, 255, 157, 0.08); }
+    50% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.15), 0 0 40px rgba(0, 255, 157, 0.05); }
+}
+
+/* --- Q-block entrance animation --- */
+.q-block {
+    animation: qBlockEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    animation-fill-mode: both;
+}
+
+.q-block:nth-child(1) { animation-delay: 0.05s; }
+.q-block:nth-child(2) { animation-delay: 0.1s; }
+.q-block:nth-child(3) { animation-delay: 0.15s; }
+.q-block:nth-child(4) { animation-delay: 0.2s; }
+.q-block:nth-child(5) { animation-delay: 0.25s; }
+
+@keyframes qBlockEnter {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* --- Question number chip pulse --- */
+.q-number-chip {
+    transition: all 0.3s ease;
+}
+
+.q-block:hover .q-number-chip {
+    background: rgba(0, 212, 255, 0.15);
+    border-color: rgba(0, 212, 255, 0.35);
+    box-shadow: 0 0 10px rgba(0, 212, 255, 0.1);
+    transform: scale(1.08);
+}
+
+/* --- Violation overlay dramatic entrance --- */
+.violation-overlay {
+    animation: violationSlam 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes violationSlam {
+    0% {
+        opacity: 0;
+        transform: translateX(60px) scale(0.9);
+        filter: blur(6px);
+    }
+    60% {
+        opacity: 1;
+        transform: translateX(-4px) scale(1.02);
+        filter: blur(0);
+    }
+    100% {
+        transform: translateX(0) scale(1);
+    }
+}
+
+/* --- Toast notification animation --- */
+.toast {
+    animation: toastSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes toastSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(40px) scale(0.95);
+        filter: blur(3px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+        filter: blur(0);
+    }
+}
+
+/* --- Device modal entrance --- */
+.device-modal {
+    animation: modalBounce 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalBounce {
+    0% {
+        opacity: 0;
+        transform: scale(0.85) translateY(30px);
+        filter: blur(8px);
+    }
+    60% {
+        opacity: 1;
+        transform: scale(1.02) translateY(-2px);
+        filter: blur(0);
+    }
+    100% {
+        transform: scale(1) translateY(0);
+    }
+}
+
+/* --- Sidebar logo animation --- */
+.sidebar-logo {
+    animation: logoEntrance 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes logoEntrance {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.sidebar-logo-icon {
+    animation: iconPulse 4s ease-in-out infinite;
+}
+
+@keyframes iconPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 212, 255, 0); }
+    50% { box-shadow: 0 0 15px 3px rgba(0, 212, 255, 0.15); }
+}
+
+/* --- Panel header accent bar animation --- */
+.panel-header-accent {
+    animation: accentGrow 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    background: linear-gradient(180deg, var(--accent), #7C3AED);
+}
+
+@keyframes accentGrow {
+    from {
+        height: 0;
+        opacity: 0;
+    }
+    to {
+        height: 24px;
+        opacity: 1;
+    }
+}
+
+/* --- Student screen entrance --- */
+#student-screen:not(.hidden) {
+    animation: studentScreenEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes studentScreenEnter {
+    from {
+        opacity: 0;
+        transform: scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* --- Audio bars enhanced animation --- */
+.audio-bar {
+    transition: height 0.1s ease, background 0.3s ease;
+    animation: audioIdle 2s ease-in-out infinite;
+    animation-delay: calc(var(--i, 0) * 0.15s);
+}
+
+#audio-bars-display .audio-bar:nth-child(1) { --i: 0; }
+#audio-bars-display .audio-bar:nth-child(2) { --i: 1; }
+#audio-bars-display .audio-bar:nth-child(3) { --i: 2; }
+#audio-bars-display .audio-bar:nth-child(4) { --i: 3; }
+#audio-bars-display .audio-bar:nth-child(5) { --i: 4; }
+#audio-bars-display .audio-bar:nth-child(6) { --i: 5; }
+#audio-bars-display .audio-bar:nth-child(7) { --i: 6; }
+#audio-bars-display .audio-bar:nth-child(8) { --i: 7; }
+#audio-bars-display .audio-bar:nth-child(9) { --i: 8; }
+#audio-bars-display .audio-bar:nth-child(10) { --i: 9; }
+#audio-bars-display .audio-bar:nth-child(11) { --i: 10; }
+#audio-bars-display .audio-bar:nth-child(12) { --i: 11; }
+
+@keyframes audioIdle {
+    0%, 100% { transform: scaleY(1); }
+    50% { transform: scaleY(1.3); }
+}
+
+/* --- Proctor report toggle arrow --- */
+#proctor-chevron {
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* --- Receipt screen entrance --- */
+#receipt-screen[style*="display: flex"],
+#receipt-screen[style*="display:flex"] {
+    animation: receiptEntrance 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes receiptEntrance {
+    from {
+        opacity: 0;
+        transform: scale(0.92);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* --- Autosave indicator pulse --- */
+#autosave-indicator {
+    transition: opacity 0.5s ease, color 0.3s ease;
+}
+
+/* --- Lucy auth card subtle breathing --- */
+.lucy-card {
+    animation: cardBreathe 6s ease-in-out infinite;
+}
+
+@keyframes cardBreathe {
+    0%, 100% { box-shadow: 0 30px 60px rgba(0, 0, 0, 0.3); }
+    50% { box-shadow: 0 35px 70px rgba(0, 0, 0, 0.35), 0 0 40px rgba(158, 233, 255, 0.05); }
+}
+
+/* --- Lucy button gradient animation --- */
+.lucy-btn {
+    position: relative;
+    background-size: 200% 100% !important;
+    background-image: linear-gradient(90deg, var(--primary), var(--primary-hover), var(--primary)) !important;
+    animation: btnShimmer 3s ease infinite;
+}
+
+@keyframes btnShimmer {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* --- Scrollbar glow on hover --- */
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 212, 255, 0.35);
+    box-shadow: 0 0 6px rgba(0, 212, 255, 0.2);
+}
+
+/* --- Exam countdown timer pulse when low --- */
+#exam-countdown {
+    transition: color 0.5s ease, text-shadow 0.5s ease;
+}
+
+/* --- AI feedback box entrance --- */
+.ai-feedback-box[style*="display: block"],
+.ai-feedback-box[style*="display:block"] {
+    animation: feedbackSlide 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes feedbackSlide {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+        max-height: 0;
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+        max-height: 500px;
+    }
+}
+
+/* --- Gradient accent line on body bottom --- */
+body::after {
+    content: '';
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #7C3AED, var(--accent), #7C3AED, transparent);
+    background-size: 200% 100%;
+    animation: gradientLine 4s linear infinite;
+    z-index: 99999;
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+@keyframes gradientLine {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+}
+
+/* --- Enhanced proctor header hover --- */
+.proctor-header {
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.proctor-header:hover {
+    background: rgba(0, 212, 255, 0.08);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* --- Field label animated underline --- */
+.field-label {
+    position: relative;
+    display: inline-block;
+    padding-bottom: 2px;
+}
+
+.field-label::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    height: 1px;
+    background: var(--accent);
+    transition: width 0.3s ease;
+}
+
+.field-label:hover::after {
+    width: 100%;
+}
+
+/* --- Animated loading skeleton --- */
+@keyframes shimmerLoad {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.loading-shimmer {
+    background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%);
+    background-size: 200% 100%;
+    animation: shimmerLoad 1.5s infinite;
+    border-radius: 6px;
 }

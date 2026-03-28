@@ -16,6 +16,10 @@
     <link rel="stylesheet" href="css/style.css">
     <!-- GSAP for premium entrance animations -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <!-- WebGazer.js for Eye Tracking -->
+    <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+    <!-- PeerJS for Hybrid WebRTC Live Video (10 FPS) -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 
 <body>
@@ -84,8 +88,10 @@
                     </div>
 
                     <div class="lucy-options-row stg-13">
-                        <button class="lucy-pill"><i class="fas fa-play-circle" style="margin-right:6px;"></i>What to Expect?</button>
-                        <button class="lucy-pill"><i class="fas fa-heartbeat" style="margin-right:6px;"></i>System Health</button>
+                        <button class="lucy-pill"><i class="fas fa-play-circle" style="margin-right:6px;"></i>What to
+                            Expect?</button>
+                        <button class="lucy-pill"><i class="fas fa-heartbeat" style="margin-right:6px;"></i>System
+                            Health</button>
                     </div>
                 </div>
 
@@ -130,7 +136,8 @@
                                     style="color: var(--text-muted-auth); font-size: 13px;">Forgotten?</a>
                             </div>
 
-                            <button id="login-action" class="lucy-btn stg-8" onclick="handleStudentLogin()">SEND OTP</button>
+                            <button id="login-action" class="lucy-btn stg-8" onclick="handleStudentLogin()">SEND
+                                OTP</button>
 
                             <div class="auth-divider stg-9"
                                 style="margin: 25px 0; color: rgba(255,255,255,0.2); font-size: 12px; text-align: center;">
@@ -167,7 +174,8 @@
                             <div class="lucy-field">
                                 <label class="lucy-label">Email</label>
                                 <div class="lucy-input-wrap">
-                                    <input type="email" id="reg-email" class="lucy-input" placeholder="student@university.edu">
+                                    <input type="email" id="reg-email" class="lucy-input"
+                                        placeholder="student@university.edu">
                                 </div>
                             </div>
                             <div class="lucy-field">
@@ -226,6 +234,8 @@
                 </div>
                 <div class="nav-item" onclick="nav('manage')" id="nav-manage"><i class="fas fa-clipboard-list"></i>
                     Manage Exams</div>
+                <div class="nav-item" onclick="nav('live')" id="nav-live"><i class="fas fa-video"></i>
+                    Live Monitor</div>
                 <div class="nav-section-label">Analytics</div>
                 <div class="nav-item" onclick="nav('results')" id="nav-results"><i class="fas fa-chart-line"></i>
                     Results</div>
@@ -452,9 +462,94 @@
                     </div>
                 </div>
             </div>
+            <!-- Live Monitor Panel -->
+            <div id="panel-live" class="panel">
+                <div class="panel-header" style="margin-bottom:20px;">
+                    <div class="panel-header-accent"></div>
+                    <div>
+                        <h2 style="margin:0;">Live Proctoring Monitor</h2>
+                        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Real-time feed from active
+                            exam sessions</div>
+                    </div>
+                </div>
+                <div id="live-active-exams-wrap">
+                    <div class="card" style="padding:20px; border:1px solid rgba(124,58,237,0.15); background:rgba(124,58,237,0.03);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                            <h3 style="margin:0; font-family:var(--font-display); color:var(--accent); font-size:16px;">Active Exams (Running Now)</h3>
+                            <button class="secondary" onclick="loadLiveExams()" style="width:auto; padding:5px 12px; font-size:12px;"><i class="fas fa-sync"></i> Refresh</button>
+                        </div>
+                        <div id="active-exams-list" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:15px;">
+                            <div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--text-muted);">
+                                <i class="fas fa-search" style="font-size:24px; margin-bottom:10px; opacity:0.3;"></i>
+                                <p>Scanning for active sessions...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="live-monitoring-view" class="hidden">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:15px;">
+                        <div style="display:flex; align-items:center; gap:20px;">
+                            <button class="secondary" onclick="backToActiveExams()" style="width:auto; padding:8px 15px; font-size:13px; border-color:var(--accent); color:var(--accent);"><i class="fas fa-arrow-left"></i> Back</button>
+                            <h2 id="monitoring-exam-title" style="margin:0; color:white; font-size:22px; font-family:var(--font-display);">Exam Title</h2>
+                        </div>
+                        <div style="display:flex; gap:15px;">
+                            <div style="background:rgba(0,255,157,0.1); padding:8px 15px; border-radius:8px; color:var(--success); border:1px solid rgba(0,255,157,0.2); font-family:var(--font-mono); font-size:13px;">
+                                <i class="fas fa-users"></i> ACTIVE: <span id="live-count-active">0</span>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.03); padding:8px 15px; border-radius:8px; color:var(--text-muted); border:1px solid rgba(255,255,255,0.08); font-family:var(--font-mono); font-size:13px;">
+                                <i class="fas fa-sync fa-spin"></i> 10S POLLING
+                            </div>
+                        </div>
+                    </div>
+                    <div id="live-monitor-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:24px;"></div>
+                    <div id="live-empty-state" class="hidden" style="text-align:center; padding:100px 40px; background:rgba(255,255,255,0.02); border-radius:18px; border:2px dashed rgba(255,255,255,0.05); margin-top:20px;">
+                        <i class="fas fa-video-slash" style="font-size:32px; color:rgba(255,255,255,0.1); margin-bottom:15px; display:block;"></i>
+                        <h3 style="margin:0; color:var(--text-primary);">No Students Detected</h3>
+                        <p style="color:var(--text-muted); margin-top:8px;">Wait for students to join or refresh the list.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LIVE STUDENT DETAIL MODAL -->
+            <div id="live-detail-modal"
+                style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:1000; align-items:center; justify-content:center; backdrop-filter:blur(10px);">
+                <div
+                    style="background:#0F172A; border:1px solid rgba(255,255,255,0.1); border-radius:18px; width:90%; max-width:800px; padding:24px; position:relative;">
+                    <button onclick="closeLiveDetail()"
+                        style="position:absolute; top:20px; right:20px; width:36px; height:36px; border-radius:50%; background:rgba(255,255,255,0.05); color:#fff; border:none; cursor:pointer;"><i
+                            class="fas fa-times"></i></button>
+                    <div style="margin-bottom:20px;">
+                        <h2 id="live-detail-name" style="margin:0; color:#fff; font-size:20px;">Student Name</h2>
+                        <div
+                            style="font-size:12px; color:var(--text-muted); font-family:'JetBrains Mono'; margin-top:4px;">
+                            REAL-TIME FOCUS VIEW (10 FPS)</div>
+                    </div>
+                    <div
+                        style="background:#000; border-radius:12px; overflow:hidden; aspect-ratio:16/9; position:relative; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+                        <video id="live-detail-video" autoplay playsinline
+                            style="width:100%; height:100%; object-fit:contain;"></video>
+                        <div id="live-detail-loading"
+                            style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.8);">
+                            <i class="fas fa-spinner fa-spin"
+                                style="font-size:30px; color:#00D4FF; margin-bottom:15px;"></i>
+                            <div style="color:#fff; font-size:13px; font-weight:600;">ESTABLISHING P2P CONNECTION...
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+                        <div style="color:var(--text-muted); font-size:12px;"><i class="fas fa-bolt"
+                                style="color:#FFB800; margin-right:5px;"></i> Low-Latency Stream Active</div>
+                        <button class="lucy-btn"
+                            style="width:auto; background:var(--danger); font-size:12px; padding:10px 20px;"><i
+                                class="fas fa-exclamation-triangle"></i> Flag Session</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <!-- ANALYTICS PANEL — injected into admin content via JS -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const content = document.querySelector('#admin-screen .content');
@@ -619,6 +714,29 @@
             </div>
             <div class="exam-content-area" id="paper-content"></div>
         </div>
+    </div>
+
+    <!-- EYE TRACKING CALIBRATION OVERLAY -->
+    <div id="gaze-calibration-screen"
+        style="display:none; position:fixed; inset:0; background:rgba(5,11,24,0.98); z-index:400; flex-direction:column; align-items:center; justify-content:center; backdrop-filter:blur(20px);">
+        <div style="text-align:center; max-width:600px; padding:40px;">
+            <div id="calib-progress-bar"
+                style="width:100%; height:4px; background:rgba(255,255,255,0.05); border-radius:10px; margin-bottom:30px; overflow:hidden;">
+                <div id="calib-progress-fill"
+                    style="width:0%; height:100%; background:linear-gradient(to right, #00D4FF, #00FF9D); transition:width 0.3s;">
+                </div>
+            </div>
+            <h2
+                style="font-family:'Rajdhani',sans-serif; color:#F1F5F9; font-size:28px; margin:0 0 10px; letter-spacing:0.05em;">
+                AI EYE-GAZE CALIBRATION</h2>
+            <p style="color:#64748B; font-size:14px; margin:0 0 32px; line-height:1.6;">To ensure accurate proctoring on
+                this device, please click each of the <span style="color:#00FF9D; font-weight:600;">9 red dots</span>
+                until they turn <span style="color:#00D4FF; font-weight:600;">blue</span> while keeping your head still
+                and following the dots with your eyes.</p>
+            <button id="start-calib-btn" class="lucy-btn" onclick="startCalibrationProcess()"
+                style="max-width:250px; margin:0 auto;">START CALIBRATION</button>
+        </div>
+        <!-- Dots will be injected here via JS -->
     </div>
 
     <!-- SUBMISSION RECEIPT SCREEN -->

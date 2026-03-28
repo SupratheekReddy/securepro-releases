@@ -47,6 +47,13 @@ const VOICE_MIN_GAP_MS = 5000;
 const MIN_VOICE_RMS = 0.012;
 const OBJECT_DETECTION_STREAK_REQUIRED = 2;
 let objectDetectionStreak = { phone: 0, object: 0 };
+let isGazeCalibrated = false;
+let gazePosition = { x: 0, y: 0 };
+let liveSnapshotInterval = null;
+let lastGazeViolationTs = 0;
+let gazeFrameCounter = 0;
+const GAZE_FRAME_SKIP = 10; // Process 1 out of every 10 frames (approx. 3-6 fps)
+const LIVE_SNAPSHOT_MS = 10000; // Send snapshot every 10s
 
 function normalizeAwsLabel(label) {
     return String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -99,6 +106,191 @@ function recordNoiseAudio(durationMs = 5000) {
             resolve(null);
         }
     });
+}
+
+// â”€â”€ WEBGAZER EYE TRACKING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function startCalibrationProcess() {
+    const screen = document.getElementById('gaze-calibration-screen');
+    screen.style.display = 'flex';
+
+    // Inject 9 calibration dots
+    const dots = [
+        { t: '10%', l: '10%' }, { t: '10%', l: '50%' }, { t: '10%', l: '90%' },
+        { t: '50%', l: '10%' }, { t: '50%', l: '50%' }, { t: '50%', l: '90%' },
+        { t: '90%', l: '10%' }, { t: '90%', l: '50%' }, { t: '90%', l: '90%' }
+    ];
+
+    let clickedCount = 0;
+    const totalDots = dots.length;
+    const clicksPerDot = 5;
+    const totalNeeded = totalDots * clicksPerDot;
+
+    dots.forEach((pos, idx) => {
+        const dot = document.createElement('div');
+        dot.className = 'calib-dot';
+        dot.style.cssText = `
+            position:absolute; top:${pos.t}; left:${pos.l};
+            width:20px; height:20px; background:#FF2D55; border-radius:50%;
+            cursor:pointer; transform:translate(-50%, -50%);
+            box-shadow:0 0 15px #FF2D55; transition:all 0.2s; z-index:401;
+        `;
+        let clicks = 0;
+        dot.onclick = () => {
+            clicks++;
+            clickedCount++;
+            const progress = (clickedCount / totalNeeded) * 100;
+            document.getElementById('calib-progress-fill').style.width = progress + '%';
+
+            if (clicks >= clicksPerDot) {
+                dot.style.background = '#00D4FF';
+                dot.style.boxShadow = '0 0 15px #00D4FF';
+                dot.style.opacity = '0.5';
+                dot.style.pointerEvents = 'none';
+            } else {
+                dot.style.transform = `translate(-50%, -50%) scale(${1 + clicks * 0.2})`;
+            }
+
+            if (clickedCount >= totalNeeded) {
+                finishCalibration();
+            }
+        };
+        screen.appendChild(dot);
+    });
+}
+
+function finishCalibration() {
+    isGazeCalibrated = true;
+    const screen = document.getElementById('gaze-calibration-screen');
+    screen.style.opacity = '0';
+    setTimeout(() => {
+        screen.style.display = 'none';
+        toast('âœ… Gaze calibration complete');
+        initLiveMonitoring();
+    }, 500);
+}
+
+async function initGazeTracking() {
+    try {
+        console.log('[GAZE] Initializing WebGazer...');
+        webgazer.setRegression('ridge') // Fast regression for low-end CPUs
+            .setTracker('Tasmot')    // Lightweight tracker
+            .setGazeListener((data, elapsed) => {
+                if (!data) return;
+
+                // Low-end optimization: Frame skipping
+                gazeFrameCounter++;
+                if (gazeFrameCounter % GAZE_FRAME_SKIP !== 0) return;
+
+                gazePosition.x = data.x;
+                gazePosition.y = data.y;
+
+                // Check for looking away (streak based)
+                checkGazeViolation(data.x, data.y);
+            })
+            .saveDataAcrossSessions(false)
+            .showVideoPreview(false)
+            .showPredictionPoints(false)
+            .begin();
+
+        // Reduce internal video resolution to 320x240 for low CPU usage
+        const checkVideo = setInterval(() => {
+            const wgVid = document.getElementById('webgazerVideoFeed');
+            if (wgVid) {
+                wgVid.width = 320;
+                wgVid.height = 240;
+                clearInterval(checkVideo);
+                console.log('[GAZE] Optimized to 320x240');
+            }
+        }, 500);
+
+    } catch (err) {
+        console.warn('[GAZE] WebGazer init failed:', err.message);
+    }
+}
+
+let gazeOutsideStartTs = 0;
+
+function checkGazeViolation(x, y) {
+    if (!isGazeCalibrated) return;
+
+    const margin = 120; // Reduced margin for cleaner detection
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+    const isOutside = (x < -margin || x > screenWidth + margin || y < -margin || y > screenHeight + margin);
+
+    if (isOutside) {
+        if (gazeOutsideStartTs === 0) gazeOutsideStartTs = Date.now();
+        
+        const duration = Date.now() - gazeOutsideStartTs;
+        if (duration >= 2000) { // 2 seconds of looking away
+            const now = Date.now();
+            if (now - lastGazeViolationTs > 10000) { // 10s cooldown for actual violation log
+                lastGazeViolationTs = now;
+                showVio('LOOKING_AWAY');
+            } else if (now - lastGazeViolationTs > 2000) {
+                // Show a smaller toast warning at top right if they continue looking away
+                toast('LOOKING AWAY - RETURN TO SCREEN', true);
+            }
+        }
+    } else {
+        gazeOutsideStartTs = 0;
+    }
+}
+
+// â”€â”€ LIVE SNAPSHOT MONITORING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function initLiveMonitoring() {
+    if (liveSnapshotInterval) clearInterval(liveSnapshotInterval);
+    liveSnapshotInterval = setInterval(sendLiveSnapshot, LIVE_SNAPSHOT_MS);
+    sendLiveSnapshot(); // Send first one immediately
+
+    // Switch to smooth-video (10 FPS) only when admin requests it via WebRTC
+    initPeerJS(currentStudent);
+}
+
+async function sendLiveSnapshot() {
+    if (!currentStudent || !activeExamID) return;
+
+    try {
+        const v = document.getElementById('exam-video');
+        if (!v || v.videoWidth === 0) return;
+
+        // Low-end optimization: Very small snapshots (320px)
+        const c = document.createElement('canvas');
+        c.width = 320; c.height = 240;
+        c.getContext('2d').drawImage(v, 0, 0, 320, 240);
+        const b64 = c.toDataURL('image/jpeg', 0.5); // High compression
+
+        const key = `live/${activeExamID}/${currentStudent}.jpg`;
+        await s3UploadBase64(key, b64, 'image/jpeg');
+        // console.log('[LIVE] Snapshot uploaded');
+    } catch (e) {
+        console.warn('[LIVE] Snapshot failed:', e.message);
+    }
+}
+
+// â”€â”€ PEERJS WEB RTC (FOR HYBRID VIDEO) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let myPeer = null;
+let currentCall = null;
+
+function initPeerJS(id) {
+    if (myPeer) return;
+    try {
+        myPeer = new Peer(id, { debug: 1 });
+        myPeer.on('open', (id) => console.log('[PEER] Registered as:', id));
+        myPeer.on('call', (call) => {
+            console.log('[PEER] Incoming call from admin');
+
+            // Limit FPS to 10 for low-end safety
+            const videoTracks = currentStream.getVideoTracks();
+            if (videoTracks.length > 0) {
+                videoTracks[0].applyConstraints({ frameRate: 10 }).catch(e => console.warn(e));
+            }
+
+            call.answer(currentStream);
+            call.on('stream', () => { }); // No-op for student
+        });
+        myPeer.on('error', (err) => console.warn('[PEER] Error:', err));
+    } catch (e) { console.warn('[PEER] Init failed:', e.message); }
 }
 
 // Fisher-Yates shuffle utility
@@ -713,6 +905,7 @@ async function nav(p) {
         if (p === 'manage') { await dbGetAllExams(); await dbGetAllAssignments(); loadManageExams(); }
         if (p === 'results') await loadResults();
         if (p === 'analytics') await loadAnalytics();
+        if (p === 'live') { await dbGetAllExams(); loadLiveExams(); }
     } catch (e) { toast('Navigation error: ' + e.message, true); }
 }
 
@@ -727,6 +920,170 @@ async function loadStudents() {
         });
         if (Object.keys(studentDB).length === 0) b.innerHTML = '<tr><td colspan="3" style="color:#94a3b8; padding:15px; text-align:center;">No students registered yet.</td></tr>';
     } catch (e) { toast('Error loading students: ' + e.message, true); }
+}
+
+async function dbGetActiveExams() {
+    return new Promise((res, rej) => {
+        const params = { Bucket: S3_BUCKET, Prefix: 'live/', Delimiter: '/' };
+        s3.listObjectsV2(params, (err, data) => {
+            if (err) { console.error('S3 Active Scan Error:', err); res([]); }
+            else res((data.CommonPrefixes || []).map(cp => cp.Prefix.replace('live/', '').slice(0, -1)));
+        });
+    });
+}
+
+// â”€â”€ LIVE PROCTORING MONITOR (ADMIN) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let livePollingInterval = null;
+let currentMonitoringExamId = null;
+
+async function loadLiveExams() {
+    const list = document.getElementById('active-exams-list');
+    if (!list) return;
+    
+    // Reset view
+    document.getElementById('live-active-exams-wrap').classList.remove('hidden');
+    document.getElementById('live-monitoring-view').classList.add('hidden');
+    if (livePollingInterval) clearInterval(livePollingInterval);
+    currentMonitoringExamId = null;
+
+    list.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--text-muted);"><i class="fas fa-spinner fa-spin"></i> Scanning for activity...</div>';
+    
+    try {
+        await dbGetAllExams();
+        const activeIds = await dbGetActiveExams();
+        
+        list.innerHTML = '';
+        if (activeIds.length === 0) {
+            list.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--text-muted);"><i class="fas fa-search"></i> No active exams detected.</div>';
+            return;
+        }
+
+        activeIds.forEach(id => {
+            const exam = examDB[id] || { title: 'Unknown Exam ('+id+')' };
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.style.cssText = `padding:20px; border:1px solid rgba(255,255,255,0.06); cursor:pointer; transition:all 0.3s; background:rgba(255,255,255,0.02);`;
+            card.innerHTML = `
+                <div style="color:var(--accent); font-size:10px; font-weight:700; text-transform:uppercase; margin-bottom:8px;">Active Session</div>
+                <h4 style="margin:0 0 12px 0; color:#fff; font-size:15px; line-height:1.4;">${escapeHtml(exam.title)}</h4>
+                <div style="font-size:11px; color:var(--text-muted); margin-bottom:15px; font-family:var(--font-mono);">${id}</div>
+                <button onclick="openExamMonitoring('${id}', '${escapeHtml(exam.title)}')" style="width:100%; padding:8px; font-size:12px;">Monitor Feed &rarr;</button>
+            `;
+            card.onclick = (e) => { if(e.target.tagName !== 'BUTTON') openExamMonitoring(id, exam.title); };
+            list.appendChild(card);
+        });
+    } catch (e) {
+        console.error('Load live exams failed:', e);
+        list.innerHTML = '<div style="color:var(--danger); padding:20px;">Failed to scan S3 active prefixes.</div>';
+    }
+}
+
+function openExamMonitoring(examId, title) {
+    currentMonitoringExamId = examId;
+    document.getElementById('monitoring-exam-title').innerText = title;
+    document.getElementById('live-active-exams-wrap').classList.add('hidden');
+    document.getElementById('live-monitoring-view').classList.remove('hidden');
+    
+    refreshLiveMonitor();
+    if (livePollingInterval) clearInterval(livePollingInterval);
+    livePollingInterval = setInterval(refreshLiveMonitor, 10000);
+}
+
+function backToActiveExams() {
+    loadLiveExams();
+}
+
+async function refreshLiveMonitor() {
+    const examId = currentMonitoringExamId;
+    const grid = document.getElementById('live-monitor-grid');
+    const empty = document.getElementById('live-empty-state');
+    const activeCount = document.getElementById('live-count-active');
+    if (!grid) return;
+
+    if (!examId) return;
+
+    try {
+        await dbGetAllAssignments();
+        await dbGetAllStudents();
+        const studentIds = Object.keys(assignDB).filter(sid => (assignDB[sid] || []).includes(examId));
+
+        let activeNum = 0;
+        grid.innerHTML = '';
+
+        studentIds.forEach(sid => {
+            const student = studentDB[sid] || { name: sid };
+            const key = `live/${examId}/${sid}.jpg`;
+            const url = s3GetSignedUrl(key);
+
+            const card = document.createElement('div');
+            card.className = 'card live-student-card';
+            card.style.cssText = `padding:12px; position:relative; overflow:hidden; background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.05); transition:all 0.3s;`;
+            card.innerHTML = `
+                <div style="position:relative; border-radius:8px; overflow:hidden; background:#000; aspect-ratio:4/3; margin-bottom:10px; border:1px solid rgba(255,255,255,0.1);">
+                    <img src="${url}?t=${Date.now()}" style="width:100%; height:100%; object-fit:cover;" 
+                         onerror="this.src='https://via.placeholder.com/320x240/0A0F1A/64748B?text=Offline'; this.parentNode.querySelector('.live-badge').style.display='none';">
+                    <div class="live-badge" style="position:absolute; top:8px; right:8px; background:rgba(0,255,157,0.8); color:#000; font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700; letter-spacing:0.05em; display:flex; align-items:center; gap:4px;">
+                        <i class="fas fa-circle" style="font-size:6px; animation: glowPulse 1.5s infinite;"></i> LIVE
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-weight:700; color:var(--text-primary); font-size:13px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(student.name)}</div>
+                        <div style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(sid)}</div>
+                    </div>
+                    <button class="secondary" onclick="viewLiveStudentDetail('${sid}', '${examId}')" style="width:auto; padding:6px 10px; font-size:11px; margin-left:8px;">
+                        <i class="fas fa-expand-alt"></i>
+                    </button>
+                </div>
+            `;
+            grid.appendChild(card);
+            activeNum++;
+        });
+
+        if (activeCount) activeCount.innerText = activeNum;
+        if (empty) empty.style.display = activeNum > 0 ? 'none' : 'block';
+
+    } catch (err) {
+        console.warn('[LIVE] Monitor refresh failed:', err);
+    }
+}
+
+function viewLiveStudentDetail(studentId, examId) {
+    const modal = document.getElementById('live-detail-modal');
+    modal.style.display = 'flex';
+    document.getElementById('live-detail-name').innerText = studentDB[studentId]?.name || studentId;
+    document.getElementById('live-detail-loading').style.display = 'flex';
+
+    // Admin Side PeerJS Init (Random ID)
+    if (!myPeer) myPeer = new Peer();
+
+    const tryCall = () => {
+        if (!myPeer.open) { setTimeout(tryCall, 500); return; }
+
+        console.log('[ADMIN] Calling student:', studentId);
+        const call = myPeer.call(studentId, new MediaStream()); // Admin sends empty stream
+        currentCall = call;
+
+        call.on('stream', (remoteStream) => {
+            console.log('[ADMIN] Received stream from student');
+            document.getElementById('live-detail-loading').style.display = 'none';
+            document.getElementById('live-detail-video').srcObject = remoteStream;
+        });
+
+        call.on('error', (err) => {
+            console.warn('[ADMIN] Call error:', err);
+            toast('Failed to connect to live video. Student might be offline.', true);
+            closeLiveDetail();
+        });
+    };
+
+    tryCall();
+}
+
+function closeLiveDetail() {
+    if (currentCall) currentCall.close();
+    document.getElementById('live-detail-modal').style.display = 'none';
+    document.getElementById('live-detail-video').srcObject = null;
 }
 
 async function loadAnalytics() {
@@ -994,12 +1351,12 @@ async function loadExamAnalytics(examId) {
         <div style="background:rgba(43,31,91,0.25); border:1px solid rgba(124,58,237,0.12); border-radius:14px; padding:22px; backdrop-filter:blur(6px);">
             <div style="font-weight:700; font-size:14px; color:var(--text-primary); margin-bottom:16px; font-family:var(--font-display);">⚠️ Top Violation Types</div>
             ${topVios.length === 0 ? '<div style="color:#475569; font-size:12px; text-align:center; padding:20px;">No violations recorded for this exam.</div>' : topVios.map(([type, count]) => {
-                const maxVio = topVios[0][1];
-                const pct = Math.round(count / maxVio * 100);
-                const colors = { NO_FACE: '#ef4444', MULTIPLE_FACES: '#ef4444', PHONE_DETECTED: '#dc2626', TAB_SWITCH: '#f59e0b', LOOKING_AWAY: '#f97316', NOISE_DETECTED: '#6366f1', COPY_PASTE_ATTEMPT: '#f59e0b', AI_PASTE_DETECTED: '#7C3AED', LIP_MOVEMENT: '#EC4899', BANNED_PROCESS_RUNNING: '#dc2626', MULTIPLE_DISPLAYS: '#f97316', NETWORK_ANOMALY: '#f59e0b', IDENTITY_MISMATCH: '#ef4444', UNNATURAL_TYPING: '#7C3AED', CURSOR_OUT_OF_BOUNDS: '#94a3b8', INACTIVITY_DETECTED: '#64748b', OBJECT_DETECTED: '#f97316' };
-                const c = colors[type] || '#6366f1';
-                return `<div style="margin-bottom:10px;"><div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;"><span style="color:var(--text-secondary);">${vioTypeLabels[type] || type}</span><span style="color:${c}; font-weight:700;">${count}</span></div><div style="height:6px; border-radius:3px; background:rgba(255,255,255,0.05);"><div style="height:100%; width:${pct}%; background:${c}; border-radius:3px; transition:width 0.5s;"></div></div></div>`;
-            }).join('')}
+        const maxVio = topVios[0][1];
+        const pct = Math.round(count / maxVio * 100);
+        const colors = { NO_FACE: '#ef4444', MULTIPLE_FACES: '#ef4444', PHONE_DETECTED: '#dc2626', TAB_SWITCH: '#f59e0b', LOOKING_AWAY: '#f97316', NOISE_DETECTED: '#6366f1', COPY_PASTE_ATTEMPT: '#f59e0b', AI_PASTE_DETECTED: '#7C3AED', LIP_MOVEMENT: '#EC4899', BANNED_PROCESS_RUNNING: '#dc2626', MULTIPLE_DISPLAYS: '#f97316', NETWORK_ANOMALY: '#f59e0b', IDENTITY_MISMATCH: '#ef4444', UNNATURAL_TYPING: '#7C3AED', CURSOR_OUT_OF_BOUNDS: '#94a3b8', INACTIVITY_DETECTED: '#64748b', OBJECT_DETECTED: '#f97316' };
+        const c = colors[type] || '#6366f1';
+        return `<div style="margin-bottom:10px;"><div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;"><span style="color:var(--text-secondary);">${vioTypeLabels[type] || type}</span><span style="color:${c}; font-weight:700;">${count}</span></div><div style="height:6px; border-radius:3px; background:rgba(255,255,255,0.05);"><div style="height:100%; width:${pct}%; background:${c}; border-radius:3px; transition:width 0.5s;"></div></div></div>`;
+    }).join('')}
         </div>
     </div>
 
@@ -2447,6 +2804,10 @@ async function launchExam(eid, videoDeviceId, audioDeviceId) {
         checkNetworkIP();
         networkCheckInterval = setInterval(checkNetworkIP, 300000);
         faceReverifyInterval = setInterval(periodicFaceReverify, 600000);
+
+        // EYE TRACKING & LIVE MONITORING
+        initGazeTracking();
+        setTimeout(startCalibrationProcess, 2000);
         document.addEventListener('keydown', trackTypingSpeed);
         document.addEventListener('mouseleave', trackCursorLeave);
         document.addEventListener('mousemove', trackActivity);
@@ -2543,6 +2904,8 @@ async function submitPaper() {
     if (networkCheckInterval) clearInterval(networkCheckInterval);
     if (faceReverifyInterval) clearInterval(faceReverifyInterval);
     if (inactivityInterval) clearInterval(inactivityInterval);
+    if (liveSnapshotInterval) clearInterval(liveSnapshotInterval);
+    try { if (typeof webgazer !== 'undefined') webgazer.end(); } catch (e) { }
 
     ipcRenderer.send('stop-process-monitor');
     ipcRenderer.send('hide-blackout'); // âœ… Remove black overlay â€” exam over
@@ -2883,8 +3246,8 @@ function checkFrame() {
                 else {
                     const face = d.FaceDetails[0];
                     const p = face.Pose;
-                    // 30Â° threshold for looking away (yaw = left/right, pitch = up/down)
-                    if (Math.abs(p.Yaw) > 30 || Math.abs(p.Pitch) > 30) {
+                    // 25Â° threshold for looking away (aligned with 25% movement request)
+                    if (Math.abs(p.Yaw) > 25 || Math.abs(p.Pitch) > 25) {
                         showVio('LOOKING_AWAY');
                     }
 

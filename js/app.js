@@ -161,12 +161,14 @@ async function startCalibrationProcess() {
 function finishCalibration() {
     isGazeCalibrated = true;
     const screen = document.getElementById('gaze-calibration-screen');
-    screen.style.opacity = '0';
-    setTimeout(() => {
-        screen.style.display = 'none';
-        toast('âœ… Gaze calibration complete');
-        initLiveMonitoring();
-    }, 500);
+    if (screen) {
+        screen.style.opacity = '0';
+        setTimeout(() => {
+            screen.style.display = 'none';
+            toast('\u2705 Gaze calibration complete');
+            initLiveMonitoring();
+        }, 500);
+    }
 }
 
 async function initGazeTracking() {
@@ -263,31 +265,42 @@ async function sendLiveSnapshot() {
     if (!currentStudent || !activeExamID) return;
 
     try {
-        const v = document.getElementById('exam-video');
-        if (!v || v.videoWidth === 0 || v.paused || v.ended) return;
-
-        // Ensure we don't capture a black screen by checking the canvas sum briefly
-        if (v.readyState < 2) return; 
+        // Try the main exam video, but fallback to WebGazer video if main is black/hidden
+        let v = document.getElementById('exam-video');
+        const wgV = document.getElementById('webgazerVideoFeed');
+        
+        // Priority check: Is the video element ready AND actually playing a frame?
+        if (!v || v.videoWidth === 0 || v.paused || v.ended || v.currentTime === 0) {
+            if (wgV && wgV.videoWidth > 0 && wgV.currentTime > 0) v = wgV; // Fallback to WG feed
+            else return; 
+        }
 
         const c = document.createElement('canvas');
-        c.width = 300; c.height = 225; // Standardized small size
-        const ctx = c.getContext('2d');
-        ctx.drawImage(v, 0, 0, 300, 225);
+        c.width = 320; c.height = 240;
+        const ctx = c.getContext('2d', { alpha: false }); // Optimization
+        ctx.drawImage(v, 0, 0, 320, 240);
 
-        // BLACK BOX FIX: Check the center of the image to ensure it's not and empty black frame
-        const p = ctx.getImageData(150, 112, 1, 1).data;
-        if (p[0] < 10 && p[1] < 10 && p[2] < 10) {
-            // Attempt a deeper scan if center is dark (it might just be a dark room)
-            const p2 = ctx.getImageData(50, 50, 1, 1).data;
-            if (p2[0] < 10 && p2[1] < 10 && p2[2] < 10) {
-                // If both center and corner are pure black, likely a rendering lag — skip and retry
-                console.log('[LIVE] Video frame not ready (Black), retrying in 2s...');
-                setTimeout(sendLiveSnapshot, 2000);
-                return;
-            }
+        // EXTRA BLACK FRAME PROTECTION: Sample 5 points (corners + center)
+        const samples = [
+            ctx.getImageData(160, 120, 1, 1).data, // Center
+            ctx.getImageData(10, 10, 1, 1).data,   // TL
+            ctx.getImageData(310, 10, 1, 1).data,  // TR
+            ctx.getImageData(10, 230, 1, 1).data,  // BL
+            ctx.getImageData(310, 230, 1, 1).data  // BR
+        ];
+
+        let isTrulyBlack = true;
+        for (const p of samples) {
+            if (p[0] > 15 || p[1] > 15 || p[2] > 15) { isTrulyBlack = false; break; }
+        }
+
+        if (isTrulyBlack) {
+            console.log('[LIVE] Detected black frame capture, skipping upload...');
+            // Don't retry immediately here to avoid infinite loops, wait for next 10s cycle
+            return;
         }
         
-        const b64 = c.toDataURL('image/jpeg', 0.6); 
+        const b64 = c.toDataURL('image/jpeg', 0.5); 
         const key = `live/${activeExamID}/${currentStudent}.jpg`;
         await s3UploadBase64(key, b64, 'image/jpeg');
     } catch (e) {
@@ -309,8 +322,12 @@ function initPeerJS(id) {
             config: {
                 'iceServers': [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:global.stun.twilio.com:3478' }
-                ]
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' }
+                ],
+                'sdpSemantics': 'unified-plan'
             }
         });
         myPeer.on('open', (id) => console.log('[PEER] Registered as:', id));
@@ -1117,8 +1134,12 @@ function viewLiveStudentDetail(studentId, examId) {
             config: {
                 'iceServers': [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:global.stun.twilio.com:3478' }
-                ]
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' }
+                ],
+                'sdpSemantics': 'unified-plan'
             }
         });
     }
@@ -2685,7 +2706,7 @@ function showPreExamSecurityCheck(eid, videoId, audioId) {
             document.getElementById('btn-kill-start').onclick = async () => {
                 // Show killing status
                 resultEl.innerHTML = `
-                    <div style="color:#f59e0b; font-size:24px; margin-bottom:12px;">ðŸ”«</div>
+                    <div style="color:#f59e0b; font-size:24px; margin-bottom:12px;">\u26a0\ufe0f</div>
                     <div style="color:#f59e0b; font-weight:700; margin-bottom:8px;">Terminating restricted apps...</div>
                     <div style="color:#64748b; font-size:13px;">${detected.map(b => b.name).join(', ')}</div>`;
 

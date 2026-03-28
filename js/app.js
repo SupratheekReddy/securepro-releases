@@ -171,8 +171,20 @@ function finishCalibration() {
 
 async function initGazeTracking() {
     try {
-        console.log('[GAZE] Initializing WebGazer...');
-        webgazer.setRegression('ridge') // Fast regression for low-end CPUs
+        console.log('[GAZE] Initializing WebGazer (with Electron bypass)...');
+        
+        // ELECTRON BYPASS: WebGazer throws an alert on non-https (file://) protocols.
+        // We temporarily mute relevant alerts before initialization.
+        const _trueAlert = window.alert;
+        window.alert = (m) => {
+            if (m && (m.includes('https') || m.includes('local server'))) {
+                console.warn('[GAZE] Muted HTTPS warning:', m);
+                return; 
+            }
+            _trueAlert(m);
+        };
+
+        webgazer.setRegression('ridge') 
             .setTracker('Tasmot')    // Lightweight tracker
             .setGazeListener((data, elapsed) => {
                 if (!data) return;
@@ -252,17 +264,32 @@ async function sendLiveSnapshot() {
 
     try {
         const v = document.getElementById('exam-video');
-        if (!v || v.videoWidth === 0) return;
+        if (!v || v.videoWidth === 0 || v.paused || v.ended) return;
 
-        // Low-end optimization: Very small snapshots (320px)
+        // Ensure we don't capture a black screen by checking the canvas sum briefly
+        if (v.readyState < 2) return; 
+
         const c = document.createElement('canvas');
-        c.width = 320; c.height = 240;
-        c.getContext('2d').drawImage(v, 0, 0, 320, 240);
-        const b64 = c.toDataURL('image/jpeg', 0.5); // High compression
+        c.width = 300; c.height = 225; // Standardized small size
+        const ctx = c.getContext('2d');
+        ctx.drawImage(v, 0, 0, 300, 225);
 
+        // BLACK BOX FIX: Check the center of the image to ensure it's not and empty black frame
+        const p = ctx.getImageData(150, 112, 1, 1).data;
+        if (p[0] < 10 && p[1] < 10 && p[2] < 10) {
+            // Attempt a deeper scan if center is dark (it might just be a dark room)
+            const p2 = ctx.getImageData(50, 50, 1, 1).data;
+            if (p2[0] < 10 && p2[1] < 10 && p2[2] < 10) {
+                // If both center and corner are pure black, likely a rendering lag — skip and retry
+                console.log('[LIVE] Video frame not ready (Black), retrying in 2s...');
+                setTimeout(sendLiveSnapshot, 2000);
+                return;
+            }
+        }
+        
+        const b64 = c.toDataURL('image/jpeg', 0.6); 
         const key = `live/${activeExamID}/${currentStudent}.jpg`;
         await s3UploadBase64(key, b64, 'image/jpeg');
-        // console.log('[LIVE] Snapshot uploaded');
     } catch (e) {
         console.warn('[LIVE] Snapshot failed:', e.message);
     }
@@ -275,21 +302,37 @@ let currentCall = null;
 function initPeerJS(id) {
     if (myPeer) return;
     try {
-        myPeer = new Peer(id, { debug: 1 });
+        console.log('[PEER] Initializing with ID:', id);
+        // Using PeerJS cloud with default STUN servers
+        myPeer = new Peer(id, {
+            debug: 1,
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
+            }
+        });
         myPeer.on('open', (id) => console.log('[PEER] Registered as:', id));
         myPeer.on('call', (call) => {
-            console.log('[PEER] Incoming call from admin');
-
+            console.log('[PEER] Incoming focus request from admin');
+            
             // Limit FPS to 10 for low-end safety
-            const videoTracks = currentStream.getVideoTracks();
-            if (videoTracks.length > 0) {
-                videoTracks[0].applyConstraints({ frameRate: 10 }).catch(e => console.warn(e));
+            if (currentStream) {
+                const videoTracks = currentStream.getVideoTracks();
+                if (videoTracks.length > 0) {
+                    videoTracks[0].applyConstraints({ frameRate: 10 }).catch(e => console.warn(e));
+                }
+                call.answer(currentStream);
             }
-
-            call.answer(currentStream);
-            call.on('stream', () => { }); // No-op for student
         });
-        myPeer.on('error', (err) => console.warn('[PEER] Error:', err));
+        myPeer.on('error', (err) => {
+            console.warn('[PEER] Error:', err);
+            if (err.type === 'unavailable-id') {
+                // If ID is taken, try to just re-use the peer
+                console.log('[PEER] ID already taken, continuing...');
+            }
+        });
     } catch (e) { console.warn('[PEER] Init failed:', e.message); }
 }
 
@@ -1007,37 +1050,49 @@ async function refreshLiveMonitor() {
         await dbGetAllStudents();
         const studentIds = Object.keys(assignDB).filter(sid => (assignDB[sid] || []).includes(examId));
 
+        // Get actual active keys from S3 to prove who is actually uploading
+        const activeS3Keys = await new Promise((res) => {
+            s3.listObjectsV2({ Bucket: S3_BUCKET, Prefix: `live/${examId}/` }, (err, data) => {
+                if(err) res([]); 
+                else res((data.Contents || []).map(o => o.Key));
+            });
+        });
+
         let activeNum = 0;
         grid.innerHTML = '';
 
         studentIds.forEach(sid => {
             const student = studentDB[sid] || { name: sid };
             const key = `live/${examId}/${sid}.jpg`;
+            const isActive = activeS3Keys.includes(key);
             const url = s3GetSignedUrl(key);
+
+            if (isActive) activeNum++;
 
             const card = document.createElement('div');
             card.className = 'card live-student-card';
-            card.style.cssText = `padding:12px; position:relative; overflow:hidden; background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.05); transition:all 0.3s;`;
+            card.style.cssText = `padding:12px; position:relative; overflow:hidden; background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.05); transition:all 0.3s; ${isActive ? '' : 'opacity: 0.5;'}`;
             card.innerHTML = `
                 <div style="position:relative; border-radius:8px; overflow:hidden; background:#000; aspect-ratio:4/3; margin-bottom:10px; border:1px solid rgba(255,255,255,0.1);">
-                    <img src="${url}?t=${Date.now()}" style="width:100%; height:100%; object-fit:cover;" 
+                    <img src="${url}?t=${Date.now()}" style="width:100%; height:100%; object-fit:cover; filter: ${isActive ? 'none' : 'grayscale(1)'};" 
                          onerror="this.src='https://via.placeholder.com/320x240/0A0F1A/64748B?text=Offline'; this.parentNode.querySelector('.live-badge').style.display='none';">
+                    
+                    ${isActive ? `
                     <div class="live-badge" style="position:absolute; top:8px; right:8px; background:rgba(0,255,157,0.8); color:#000; font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700; letter-spacing:0.05em; display:flex; align-items:center; gap:4px;">
                         <i class="fas fa-circle" style="font-size:6px; animation: glowPulse 1.5s infinite;"></i> LIVE
-                    </div>
+                    </div>` : ''}
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="flex:1; min-width:0;">
                         <div style="font-weight:700; color:var(--text-primary); font-size:13px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(student.name)}</div>
-                        <div style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(sid)}</div>
+                        <div style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(sid)} ${isActive ? '' : '(Offline)'}</div>
                     </div>
-                    <button class="secondary" onclick="viewLiveStudentDetail('${sid}', '${examId}')" style="width:auto; padding:6px 10px; font-size:11px; margin-left:8px;">
+                    <button class="secondary" onclick="viewLiveStudentDetail('${sid}', '${examId}')" style="width:auto; padding:6px 10px; font-size:11px; margin-left:8px;" ${isActive ? '' : 'disabled'}>
                         <i class="fas fa-expand-alt"></i>
                     </button>
                 </div>
             `;
             grid.appendChild(card);
-            activeNum++;
         });
 
         if (activeCount) activeCount.innerText = activeNum;
@@ -1053,26 +1108,51 @@ function viewLiveStudentDetail(studentId, examId) {
     modal.style.display = 'flex';
     document.getElementById('live-detail-name').innerText = studentDB[studentId]?.name || studentId;
     document.getElementById('live-detail-loading').style.display = 'flex';
+    document.getElementById('live-detail-video').srcObject = null;
 
     // Admin Side PeerJS Init (Random ID)
-    if (!myPeer) myPeer = new Peer();
+    if (!myPeer || myPeer.destroyed) {
+        myPeer = new Peer({
+            debug: 1,
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
+            }
+        });
+    }
+
+    let connectionTimeout = setTimeout(() => {
+        if (document.getElementById('live-detail-loading').style.display !== 'none') {
+            console.warn('[ADMIN] Stream connection timeout');
+            toast('Connection timeout. Student may have a firewall issue.', true);
+            closeLiveDetail();
+        }
+    }, 12000);
 
     const tryCall = () => {
-        if (!myPeer.open) { setTimeout(tryCall, 500); return; }
+        if (!myPeer.open) { 
+            if (myPeer.destroyed) myPeer = new Peer();
+            setTimeout(tryCall, 500); 
+            return; 
+        }
 
-        console.log('[ADMIN] Calling student:', studentId);
-        const call = myPeer.call(studentId, new MediaStream()); // Admin sends empty stream
+        console.log('[ADMIN] Attempting P2P call to:', studentId);
+        const call = myPeer.call(studentId, new MediaStream()); // Minimal overhead
         currentCall = call;
 
         call.on('stream', (remoteStream) => {
-            console.log('[ADMIN] Received stream from student');
+            clearTimeout(connectionTimeout);
+            console.log('[ADMIN] Stream received');
             document.getElementById('live-detail-loading').style.display = 'none';
             document.getElementById('live-detail-video').srcObject = remoteStream;
         });
 
         call.on('error', (err) => {
+            clearTimeout(connectionTimeout);
             console.warn('[ADMIN] Call error:', err);
-            toast('Failed to connect to live video. Student might be offline.', true);
+            toast('P2P Connection failed: ' + err.type, true);
             closeLiveDetail();
         });
     };

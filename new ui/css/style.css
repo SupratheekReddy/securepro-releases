@@ -1,0 +1,182 @@
+
+/* ========================================================================= */
+/* === PREMIUM SPLIT-CARD SEQUENCE === */
+/* ========================================================================= */
+
+:root {
+    --brand-blue: #4A90E2;
+    --brand-navy: #192A56;
+    --brand-accent: #3498DB;
+    --text-main: #2C3E50;
+    --text-muted: #7F8C8D;
+    --bg-card: #FFFFFF;
+    --bg-right: #F8FBFF;
+    --font-display: 'Montserrat', sans-serif;
+    --font-ui: 'Inter', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0; padding: 0;
+    background-color: var(--brand-blue);
+    font-family: var(--font-ui);
+    color: var(--text-main);
+    overflow: hidden;
+    height: 100vh; width: 100vw;
+}
+
+#premium-wrapper {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+}
+
+/* --- BACKGROUND RINGS --- */
+.bg-circles {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0; pointer-events: none; overflow: hidden;
+}
+.circle {
+    position: absolute; border-radius: 50%;
+    border: 40px solid rgba(255, 255, 255, 0.08);
+}
+.circle-1 { width: 800px; height: 800px; top: -300px; left: -200px; }
+.circle-2 { width: 1200px; height: 1200px; bottom: -400px; right: -300px; border-width: 60px; }
+.circle-3 { width: 400px; height: 400px; top: 20%; right: 10%; border-width: 20px; opacity: 0.5; }
+
+/* --- BRANDING (Icon + Wordmark) --- */
+#branding-container {
+    position: absolute; z-index: 1000;
+    display: flex; align-items: center; gap: 15px;
+}
+.branding-center {
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+}
+#secure-icon { width: 80px; height: auto; }
+#secure-wordmark {
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 32px; color: #FFFFFF;
+    letter-spacing: -1px;
+}
+
+/* --- MAIN CARD --- */
+#card-reveal-container {
+    position: relative; z-index: 100;
+    width: 1000px; height: 600px;
+}
+.main-card {
+    width: 1000px; height: 600px;
+    background: var(--bg-card);
+    display: flex;
+    border-radius: 24px;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.15);
+    overflow: hidden;
+    position: relative;
+}
+
+.card-left {
+    flex: 1.2; padding: 60px 80px;
+    display: flex; flex-direction: column; justify-content: center;
+}
+.card-right {
+    flex: 0.8; background: var(--bg-right);
+    border-left: 1px solid #EBF2F9;
+    position: relative;
+}
+
+/* --- TYPOGRAPHY --- */
+.digital-tag {
+    font-size: 11px; font-weight: 700; color: var(--brand-accent);
+    text-transform: uppercase; letter-spacing: 2px;
+    margin-bottom: 20px; display: block;
+}
+.hero-title {
+    font-family: var(--font-display);
+    font-size: 28px; font-weight: 700; color: var(--brand-navy);
+    line-height: 1.3; margin: 0 0 12px 0;
+}
+.hero-subtitle {
+    font-size: 14px; color: var(--text-muted);
+    margin-bottom: 40px; line-height: 1.6;
+}
+
+/* --- FORMS --- */
+.input-field { margin-bottom: 24px; }
+.input-field label {
+    display: block; font-size: 11px; font-weight: 600; color: var(--text-muted);
+    margin-bottom: 8px; text-transform: uppercase;
+}
+.input-field input {
+    width: 100%; padding: 14px 18px;
+    border: 1.5px solid #EDF2F7; border-radius: 12px;
+    font-size: 14px; outline: none; transition: 0.2s;
+}
+.input-field input:focus { border-color: var(--brand-accent); box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.1); }
+
+.input-row { display: flex; gap: 15px; }
+.input-row .input-field { flex: 1; }
+
+.form-footer { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+.link-text { font-size: 13px; color: var(--brand-accent); font-weight: 500; text-decoration: none; }
+.link-text:hover { text-decoration: underline; }
+
+.button-row { display: flex; gap: 15px; }
+.btn-primary {
+    flex: 1; padding: 16px; border: none; border-radius: 12px;
+    background: var(--brand-accent); color: #FFF;
+    font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.3s;
+}
+.btn-primary:hover { background: var(--brand-navy); transform: translateY(-2px); }
+.btn-outline {
+    flex: 1; padding: 16px; border: 1.5px solid #EDF2F7; border-radius: 12px;
+    background: transparent; color: var(--text-main);
+    font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.3s;
+}
+.btn-outline:hover { background: #F8F9FA; }
+
+/* --- CARD NAV --- */
+.card-nav {
+    position: absolute; top: 40px; right: 40px;
+    display: flex; gap: 24px;
+}
+.card-nav a {
+    text-decoration: none; font-size: 12px; font-weight: 600;
+    color: var(--text-muted); transition: 0.2s;
+}
+.card-nav a:hover { color: var(--brand-navy); }
+
+/* --- CYCLIST (The Hero) --- */
+#cyclist-container {
+    position: absolute; z-index: 200;
+    width: 350px; height: auto;
+    /* Centered vertically on screen */
+    top: 55%; left: 0%;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+.premium-cyclist-svg { width: 100%; height: auto; }
+
+/* ANIMATIONS */
+.spin-anim { animation: spin 0.8s linear infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+.pedal-anim-1 { animation: pedal 0.5s ease-in-out infinite alternate; transform-origin: top center; transform-box: fill-box; }
+.pedal-anim-2 { animation: pedal 0.5s ease-in-out infinite alternate-reverse; transform-origin: top center; transform-box: fill-box; }
+@keyframes pedal { 0% { transform: translateY(0) rotate(0); } 100% { transform: translateY(5px) rotate(10deg); } }
+
+
+/* UTILS */
+.hidden { display: none !important; }
+
+/* Toast */
+#toast-box { position: fixed; bottom: 30px; right: 30px; z-index: 9999; }
+.toast {
+    background: #FFF; border-radius: 12px; padding: 15px 25px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.1); border-left: 4px solid var(--brand-accent);
+    margin-top: 10px; font-size: 14px; font-weight: 500;
+    animation: toast-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes toast-in { 0% { transform: translateX(50px); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+

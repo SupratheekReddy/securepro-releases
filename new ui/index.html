@@ -1,0 +1,197 @@
+<link rel="stylesheet" href="css/modern-dashboard.css">
+</head>
+
+<body>
+
+    <div id="toast-box"></div>
+
+    <!-- PIXEL-PERFECT AUTH SCREEN (Lucy-Style Browser Window) -->
+    <div id="auth-screen">
+        <div class="browser-frame">
+            <header class="frame-header">
+                <!-- Window dots removed as per request -->
+            </header>
+
+            <div class="body-split">
+                <!-- BG SHAPES -->
+                <div class="blob blob-1"></div>
+                <div class="blob blob-2"></div>
+
+                <div class="split-left">
+                    <img src="brain/de679f2d-ed97-47ec-a037-fb6b9c6e9170/lucy_abstract_3d_shape_1773392280722.png"
+                        id="asset-img" class="auth-asset-img" alt="">
+
+                    <div class="lucy-logo-wrap stg-1">
+                        <div class="lucy-logo-icon">
+                            <i class="fas fa-shield-halved shield-logo"></i>
+                        </div>
+                        <div>
+                            <div class="lucy-brand-text">SECURE PRO<span class="lucy-trademark">TM</span></div>
+                            <div class="lucy-sub-brand">AI-Powered Proctoring Ecosystem</div>
+                        </div>
+                    </div>
+
+                    <h1 class="lucy-headline stg-2">
+                        Artificial Intelligence Driving Results For Integrity: The Global Standard
+                    </h1>
+
+                    <div class="lucy-options-row stg-3">
+                        <button class="lucy-pill">What to Expect?</button>
+                        <button class="lucy-pill">System Health</button>
+                    </div>
+                </div>
+
+                <div class="split-right">
+                    <div class="lucy-card stg-4">
+                        <div id="view-login" class="auth-view">
+                            <h2 class="lucy-card-title stg-5">Log In to Secure Pro</h2>
+
+                            <div class="lucy-field stg-6">
+                                <label class="lucy-label">Your Registration Number</label>
+                                <div class="lucy-input-wrap">
+                                    <input type="text" id="login-id" class="lucy-input"
+                                        placeholder="thisishimel@gmail.com">
+                                </div>
+                            </div>
+
+                            <div id="otp-group" class="lucy-field hidden">
+                                <label class="lucy-label">Secure OTP</label>
+                                <div class="lucy-input-wrap">
+                                    <input type="password" id="login-otp" class="lucy-input" placeholder="••••••">
+                                </div>
+                            </div>
+
+                            <div id="cam-container" class="hidden"
+                                style="margin-bottom: 24px; border-radius: 12px; overflow: hidden; position: relative; aspect-ratio: 4/3; background: #000; border: 1px solid rgba(255,255,255,0.1);">
+                                <video id="login-video" style="width: 100%; height: 100%; object-fit: cover;" autoplay
+                                    muted playsinline></video>
+                                <div
+                                    style="position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: var(--primary); box-shadow: 0 0 15px var(--primary); animation: scanLine 2s linear infinite;">
+                                </div>
+                            </div>
+
+                            <div class="auth-options stg-7" style="margin-bottom: 30px;">
+                                <label
+                                    style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-muted-auth); font-size: 13px;">
+                                    <input type="checkbox" style="accent-color: var(--primary);"> Remember
+                                </label>
+                                <a href="#" class="auth-link"
+                                    style="color: var(--text-muted-auth); font-size: 13px;">Forgotten?</a>
+                            </div>
+
+                            <button id="login-action" class="lucy-btn stg-8" onclick="handleStudentLogin()">Log
+                                In</button>
+
+                            <div class="auth-divider stg-9"
+                                style="margin: 25px 0; color: rgba(255,255,255,0.2); font-size: 12px; text-align: center;">
+                                Don't have an account?</div>
+
+                            <button class="lucy-secondary-btn stg-10" onclick="switchView('register')">Sign Up</button>
+                            <button class="lucy-secondary-btn stg-11" onclick="switchView('admin')"
+                                style="margin-top: 10px;">Admin Access</button>
+                        </div>
+
+                        <!-- Registration View -->
+                        <div id="view-register" class="auth-view hidden">
+                            <h2 class="lucy-card-title">Create Account</h2>
+                            <div class="lucy-field">
+                                <label class="lucy-label">Full Name</label>
+                                <div class="lucy-input-wrap">
+                                    <input type="text" id="reg-name" class="lucy-input" placeholder="John Doe">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div class="lucy-field">
+                                    <label class="lucy-label">Reg ID</label>
+                                    <div class="lucy-input-wrap">
+                                        <input type="text" id="reg-id" class="lucy-input" placeholder="ID">
+                                    </div>
+                                </div>
+                                <div class="lucy-field">
+                                    <label class="lucy-label">Contact</label>
+                                    <div class="lucy-input-wrap">
+                                        <input type="tel" id="reg-mobile" class="lucy-input" placeholder="+91">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="lucy-field">
+                                <label class="lucy-label">Identity Photo</label>
+                                <div class="lucy-input-wrap">
+                                    <input type="file" id="reg-photo" class="lucy-input" accept="image/*">
+                                </div>
+                            </div>
+                            <button class="lucy-btn" onclick="registerUser()">Register Account</button>
+                            <button class="lucy-secondary-btn" onclick="switchView('login')">Cancel</button>
+                        </div>
+
+                        <!-- Admin View -->
+                        <div id="view-admin" class="auth-view hidden">
+                            <h2 class="lucy-card-title">Admin Override</h2>
+                            <div class="lucy-field">
+                                <label class="lucy-label">Admin User</label>
+                                <div class="lucy-input-wrap">
+                                    <input type="text" id="admin-user" class="lucy-input" placeholder="root">
+                                </div>
+                            </div>
+                            <div class="lucy-field">
+                                <label class="lucy-label">Password</label>
+                                <div class="lucy-input-wrap">
+                                    <input type="password" id="admin-pass" class="lucy-input" placeholder="••••••••">
+                                </div>
+                            </div>
+                            <button class="lucy-btn" onclick="handleAdminLogin()">Verify credentials</button>
+                            <button class="lucy-secondary-btn" onclick="switchView('login')">Student Login</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Redacted Admin/Student screens as they are unchanged -->
+
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+
+    <!-- GSAP STAGGERED ENTRANCES (35+ Animations) -->
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const tl = gsap.timeline();
+
+            // 1. Initial State
+            gsap.set(".browser-frame", { scale: 0.95, opacity: 0 });
+            gsap.set(".stg-1", { x: -30, opacity: 0 });
+            gsap.set(".stg-2", { x: -30, opacity: 0 });
+            gsap.set(".stg-3", { x: -30, opacity: 0 });
+            gsap.set(".stg-4", { x: 30, opacity: 0 });
+            gsap.set(".stg-5", { y: 20, opacity: 0 });
+            gsap.set(".stg-6", { y: 20, opacity: 0 });
+            gsap.set(".stg-7", { y: 20, opacity: 0 });
+            gsap.set(".stg-8", { y: 20, opacity: 0 });
+            gsap.set(".stg-9", { opacity: 0 });
+            gsap.set(".stg-10", { y: 20, opacity: 0 });
+            gsap.set(".stg-11", { y: 20, opacity: 0 });
+            gsap.set("#asset-img", { scale: 0.8, opacity: 0 });
+
+            // 2. Entrance Sequence
+            tl.to(".browser-frame", { duration: 1.2, scale: 1, opacity: 1, ease: "expo.out" });
+            tl.to("#asset-img", { duration: 1.2, scale: 1, opacity: 1, ease: "power3.out" }, "-=1.0");
+
+            tl.to(".stg-1", { duration: 0.8, x: 0, opacity: 1, ease: "power2.out" }, "-=0.8");
+            tl.to(".stg-2", { duration: 0.8, x: 0, opacity: 1, ease: "power2.out" }, "-=0.6");
+            tl.to(".stg-3", { duration: 0.8, x: 0, opacity: 1 }, "-=0.6");
+
+            tl.to(".stg-4", { duration: 1.2, x: 0, opacity: 1, ease: "expo.out" }, "-=1.0");
+            tl.to(".stg-5", { duration: 0.6, y: 0, opacity: 1 }, "-=0.8");
+            tl.to(".stg-6", { duration: 0.6, y: 0, opacity: 1, stagger: 0.15 }, "-=0.6");
+            tl.to(".stg-7", { duration: 0.4, y: 0, opacity: 1 }, "-=0.4");
+            tl.to(".stg-8", { duration: 0.8, y: 0, opacity: 1, ease: "back.out(1.7)" }, "-=0.4");
+            tl.to(".stg-9", { duration: 0.4, opacity: 1 }, "-=0.4");
+            tl.to(".stg-10", { duration: 0.6, y: 0, opacity: 1 }, "-=0.2");
+            tl.to(".stg-11", { duration: 0.6, y: 0, opacity: 1 }, "-=0.4");
+
+            // Float Loop
+            gsap.to("#asset-img", { y: "+=15", duration: 3, repeat: -1, yoyo: true, ease: "sine.inOut" });
+        });
+    </script>

@@ -180,7 +180,7 @@ function finishCalibration() {
         setTimeout(() => {
             screen.style.display = 'none';
             toast('\u2705 Gaze calibration complete');
-            initLiveMonitoring();
+            startHeartbeat(); 
         }, 500);
     }
 }
@@ -265,60 +265,21 @@ function checkGazeViolation(x, y) {
     }
 }
 
-// -- LIVE SNAPSHOT MONITORING -------------------------------
-async function initLiveMonitoring() {
+// -- LIVE HEARTBEAT MONITORING (No Video/Snapshots) -------------------------------
+function startHeartbeat() {
     if (liveSnapshotInterval) clearInterval(liveSnapshotInterval);
-    liveSnapshotInterval = setInterval(sendLiveSnapshot, LIVE_SNAPSHOT_MS);
-    sendLiveSnapshot(); // Send first one immediately
-
-    // Switch to smooth-video (10 FPS) only when admin requests it via WebRTC
-    initPeerJS(currentStudent);
+    liveSnapshotInterval = setInterval(sendHeartbeat, 15000); // 15s heartbeat
+    sendHeartbeat();
 }
 
-async function sendLiveSnapshot() {
+async function sendHeartbeat() {
     if (!currentStudent || !activeExamID) return;
-
     try {
-        // Try the main exam video, but fallback to WebGazer video if main is black/hidden
-        let v = document.getElementById('exam-video');
-        const wgV = document.getElementById('webgazerVideoFeed');
-        
-        // Priority check: Is the video element ready AND actually playing a frame?
-        if (!v || v.videoWidth === 0 || v.paused || v.ended || v.currentTime === 0) {
-            if (wgV && wgV.videoWidth > 0 && wgV.currentTime > 0) v = wgV; // Fallback to WG feed
-            else return; 
-        }
-
-        const c = document.createElement('canvas');
-        c.width = 320; c.height = 240;
-        const ctx = c.getContext('2d', { alpha: false }); // Optimization
-        ctx.drawImage(v, 0, 0, 320, 240);
-
-        // EXTRA BLACK FRAME PROTECTION: Sample 5 points (corners + center)
-        const samples = [
-            ctx.getImageData(160, 120, 1, 1).data, // Center
-            ctx.getImageData(10, 10, 1, 1).data,   // TL
-            ctx.getImageData(310, 10, 1, 1).data,  // TR
-            ctx.getImageData(10, 230, 1, 1).data,  // BL
-            ctx.getImageData(310, 230, 1, 1).data  // BR
-        ];
-
-        let isTrulyBlack = true;
-        for (const p of samples) {
-            if (p[0] > 15 || p[1] > 15 || p[2] > 15) { isTrulyBlack = false; break; }
-        }
-
-        if (isTrulyBlack) {
-            console.log('[LIVE] Detected black frame capture, skipping upload...');
-            // Don't retry immediately here to avoid infinite loops, wait for next 10s cycle
-            return;
-        }
-        
-        const b64 = c.toDataURL('image/jpeg', 0.5); 
-        const key = `live/${activeExamID}/${currentStudent}.jpg`;
-        await s3UploadBase64(key, b64, 'image/jpeg');
+        const key = `live/${activeExamID}/${currentStudent}.heartbeat`;
+        const data = JSON.stringify({ sid: currentStudent, ts: Date.now(), status: 'active' });
+        await s3.putObject({ Bucket: S3_BUCKET, Key: key, Body: data, ContentType: 'application/json' }).promise();
     } catch (e) {
-        console.warn('[LIVE] Snapshot failed:', e.message);
+        console.warn('[HEARTBEAT] Send failed:', e.message);
     }
 }
 
@@ -1059,30 +1020,27 @@ function openExamMonitoring(examId, title) {
     document.getElementById('live-active-exams-wrap').classList.add('hidden');
     document.getElementById('live-monitoring-view').classList.remove('hidden');
     
-    refreshLiveMonitor();
+    refreshLiveMonitor(examId);
     if (livePollingInterval) clearInterval(livePollingInterval);
-    livePollingInterval = setInterval(refreshLiveMonitor, 10000);
+    livePollingInterval = setInterval(() => refreshLiveMonitor(examId), 10000);
 }
 
 function backToActiveExams() {
     loadLiveExams();
 }
 
-async function refreshLiveMonitor() {
-    const examId = currentMonitoringExamId;
-    const grid = document.getElementById('live-monitor-grid');
-    const empty = document.getElementById('live-empty-state');
+async function refreshLiveMonitor(examId) {
+    const list = document.getElementById('live-monitor-list');
     const activeCount = document.getElementById('live-count-active');
-    if (!grid) return;
-
-    if (!examId) return;
+    const empty = document.getElementById('live-empty-state');
+    if (!list) return;
 
     try {
         await dbGetAllAssignments();
         await dbGetAllStudents();
         const studentIds = Object.keys(assignDB).filter(sid => (assignDB[sid] || []).includes(examId));
 
-        // Get actual active keys from S3 to prove who is actually uploading
+        // Get actual active keys from S3 (Heartbeats)
         const activeS3Keys = await new Promise((res) => {
             s3.listObjectsV2({ Bucket: S3_BUCKET, Prefix: `live/${examId}/` }, (err, data) => {
                 if(err) res([]); 
@@ -1091,40 +1049,36 @@ async function refreshLiveMonitor() {
         });
 
         let activeNum = 0;
-        grid.innerHTML = '';
+        list.innerHTML = '';
 
         studentIds.forEach(sid => {
             const student = studentDB[sid] || { name: sid };
-            const key = `live/${examId}/${sid}.jpg`;
-            const isActive = activeS3Keys.includes(key);
-            const url = s3GetSignedUrl(key);
+            const hb = `live/${examId}/${sid}.heartbeat`;
+            const snapshot = `live/${examId}/${sid}.jpg`; // Old legacy snapshots
+            const isActive = activeS3Keys.includes(hb) || activeS3Keys.includes(snapshot);
 
             if (isActive) activeNum++;
 
-            const card = document.createElement('div');
-            card.className = 'card live-student-card';
-            card.style.cssText = `padding:12px; position:relative; overflow:hidden; background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.05); transition:all 0.3s; ${isActive ? '' : 'opacity: 0.5;'}`;
-            card.innerHTML = `
-                <div style="position:relative; border-radius:8px; overflow:hidden; background:#000; aspect-ratio:4/3; margin-bottom:10px; border:1px solid rgba(255,255,255,0.1);">
-                    <img src="${url}?t=${Date.now()}" style="width:100%; height:100%; object-fit:cover; filter: ${isActive ? 'none' : 'grayscale(1)'};" 
-                         onerror="this.src='https://via.placeholder.com/320x240/0A0F1A/64748B?text=Offline'; this.parentNode.querySelector('.live-badge').style.display='none';">
-                    
+            const row = document.createElement('tr');
+            row.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+            row.innerHTML = `
+                <td style="padding:15px 20px; font-weight:600; color:${isActive ? 'var(--text-primary)' : 'var(--text-muted)'};">
+                    ${escapeHtml(cleanMojibake(student.name))}
+                </td>
+                <td style="padding:15px 20px; font-family:var(--font-mono); font-size:12px; color:var(--text-muted);">
+                    ${escapeHtml(sid)}
+                </td>
+                <td style="padding:15px 20px; text-align:right;">
                     ${isActive ? `
-                    <div class="live-badge" style="position:absolute; top:8px; right:8px; background:rgba(0,255,157,0.8); color:#000; font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700; letter-spacing:0.05em; display:flex; align-items:center; gap:4px;">
-                        <i class="fas fa-circle" style="font-size:6px; animation: glowPulse 1.5s infinite;"></i> LIVE
-                    </div>` : ''}
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="flex:1; min-width:0;">
-                        <div style="font-weight:700; color:var(--text-primary); font-size:13px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(student.name)}</div>
-                        <div style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(sid)} ${isActive ? '' : '(Offline)'}</div>
-                    </div>
-                    <button class="secondary" onclick="viewLiveStudentDetail('${sid}', '${examId}')" style="width:auto; padding:6px 10px; font-size:11px; margin-left:8px;" ${isActive ? '' : 'disabled'}>
-                        <i class="fas fa-expand-alt"></i>
-                    </button>
-                </div>
+                        <span style="background:rgba(0,255,157,0.1); color:#00FF9D; padding:4px 10px; border-radius:20px; font-size:10px; font-weight:700;">
+                            <i class="fas fa-circle" style="font-size:7px; margin-right:5px; animation: glowPulse 1.5s infinite;"></i> WRITING
+                        </span>
+                    ` : `
+                        <span style="color:#64748b; font-size:10px; font-weight:600;">OFFLINE</span>
+                    `}
+                </td>
             `;
-            grid.appendChild(card);
+            list.appendChild(row);
         });
 
         if (activeCount) activeCount.innerText = activeNum;
@@ -1135,72 +1089,6 @@ async function refreshLiveMonitor() {
     }
 }
 
-function viewLiveStudentDetail(studentId, examId) {
-    const modal = document.getElementById('live-detail-modal');
-    modal.style.display = 'flex';
-    document.getElementById('live-detail-name').innerText = studentDB[studentId]?.name || studentId;
-    document.getElementById('live-detail-loading').style.display = 'flex';
-    document.getElementById('live-detail-video').srcObject = null;
-
-    // Admin Side PeerJS Init (Random ID)
-    if (!myPeer || myPeer.destroyed) {
-        myPeer = new Peer({
-            debug: 1,
-            config: {
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:stun3.l.google.com:19302' },
-                    { urls: 'stun:stun4.l.google.com:19302' }
-                ],
-                'sdpSemantics': 'unified-plan'
-            }
-        });
-    }
-
-    let connectionTimeout = setTimeout(() => {
-        if (document.getElementById('live-detail-loading').style.display !== 'none') {
-            console.warn('[ADMIN] Stream connection timeout');
-            toast('Connection timeout. Student may have a firewall issue.', true);
-            closeLiveDetail();
-        }
-    }, 12000);
-
-    const tryCall = () => {
-        if (!myPeer.open) { 
-            if (myPeer.destroyed) myPeer = new Peer();
-            setTimeout(tryCall, 500); 
-            return; 
-        }
-
-        console.log('[ADMIN] Attempting P2P call to:', studentId);
-        const call = myPeer.call(studentId, new MediaStream()); // Minimal overhead
-        currentCall = call;
-
-        call.on('stream', (remoteStream) => {
-            clearTimeout(connectionTimeout);
-            console.log('[ADMIN] Stream received');
-            document.getElementById('live-detail-loading').style.display = 'none';
-            document.getElementById('live-detail-video').srcObject = remoteStream;
-        });
-
-        call.on('error', (err) => {
-            clearTimeout(connectionTimeout);
-            console.warn('[ADMIN] Call error:', err);
-            toast('P2P Connection failed: ' + err.type, true);
-            closeLiveDetail();
-        });
-    };
-
-    tryCall();
-}
-
-function closeLiveDetail() {
-    if (currentCall) currentCall.close();
-    document.getElementById('live-detail-modal').style.display = 'none';
-    document.getElementById('live-detail-video').srcObject = null;
-}
 
 async function loadAnalytics() {
     const container = document.getElementById('analytics-content');
